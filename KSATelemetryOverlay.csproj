@@ -1,0 +1,63 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<RootNamespace>KSATelemetryOverlay</RootNamespace>
+		<AssemblyName>KSATelemetryOverlay</AssemblyName>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<LangVersion>latest</LangVersion>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Update="mod.toml">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<PropertyGroup>
+		<ImportDir Condition="'$(ImportDir)' == ''">$(MSBuildThisFileDirectory)..\Import\</ImportDir>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Reference Include="$(ImportDir)KSA.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.ImGui.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.ImGui.Extensions.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.ImGui.Abstractions.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Core.Numerics.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Core.Strings.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Core.Common.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Core.Collections.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Core.Maths.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Glfw.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)BepuUtilities.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)StarMap.API.dll">
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
+
+</Project>
