@@ -15,6 +15,10 @@
 		<None Update="mod.toml">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</None>
+		<!-- Overlay fonts are loaded at runtime from beside the DLL. -->
+		<None Include="montserrat\**\*.ttf" Link="montserrat\%(Filename)%(Extension)">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
 	</ItemGroup>
 
 	<PropertyGroup>

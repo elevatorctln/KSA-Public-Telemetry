@@ -8,14 +8,20 @@ public static class TelemetrySampler
     private const double StandardGravity = 9.80665;
     private const float NominalThrottleThreshold = 0.95f;
     private static string _lastVehicleId = string.Empty;
-    public static void Sample(TelemetrySnapshot snapshot)
-    {
-        snapshot.Clear();
+    private static readonly MissionClock _clock = new();
+    private static readonly SignalState _signal = new();
+    public static MissionClock Clock => _clock;
+    public static SignalState Signal => _signal;
 
+    public static void Sample(TelemetrySnapshot snapshot, double dt)
+    {
         Vehicle? vehicle = Program.ControlledVehicle;
         if (vehicle is null || vehicle.IsDisposed)
         {
+            snapshot.Clear();
             _lastVehicleId = string.Empty;
+            _signal.SetNoVehicle();
+            _clock.Reset();
             return;
         }
 
@@ -25,13 +31,35 @@ public static class TelemetrySampler
             snapshot.ResetRecords();
         }
 
+        if (!_signal.ShouldSample(vehicle.Id, vehicle.IsControllable, dt))
+        {
+            snapshot.Signal = _signal.Status;
+            snapshot.IsFrozen = true;
+            return;
+        }
+
+        snapshot.Clear();
+
         snapshot.HasVehicle = true;
         snapshot.VehicleName = vehicle.Id;
         snapshot.OnRails = vehicle.Situation.IsOnRails();
+        snapshot.HasSurfaceContact = vehicle.Situation.HasAnyContact();
+        snapshot.IsControllable = vehicle.IsControllable;
+        snapshot.Signal = _signal.Status;
+        snapshot.IsFrozen = false;
 
         SampleKinematics(vehicle, snapshot);
         SampleEngines(vehicle, snapshot);
         SamplePropellants(vehicle, snapshot);
+
+        _clock.Update(
+            vehicle.Id,
+            snapshot.HasSurfaceContact,
+            snapshot.VerticalSpeed,
+            snapshot.BurningEngineCount > 0);
+
+        snapshot.MissionElapsedSeconds = _clock.ElapsedSeconds;
+        snapshot.HasLiftoff = _clock.HasLiftoff;
     }
 
     private static void SampleKinematics(Vehicle vehicle, TelemetrySnapshot snapshot)
@@ -47,6 +75,13 @@ public static class TelemetrySampler
         snapshot.PropellantMass = vehicle.PropellantMass;
 
         ReadOnlyPhysicsStates physics = vehicle.GetPhysicsStates();
+
+        physics.GetStatesCci(out double3 positionCci, out double3 velocityCci, out _);
+        double radius = positionCci.Length();
+        snapshot.VerticalSpeed = radius > 0.0
+            ? double3.Dot(velocityCci, positionCci / radius)
+            : 0.0;
+
         float ambientPressure = physics.Environment.AtmosphericPressure;
         float ambientDensity = physics.Environment.AtmosphericDensity;
         float airspeed = physics.ComputeAirVelocityBody().Length();
@@ -413,12 +448,18 @@ public static class TelemetrySampler
             }
         }
 
+        float aggregateMass = 0f;
+        float aggregateCapacity = 0f;
+
         foreach ((string name, SubstanceTotal entry) in totals)
         {
             if (entry.Capacity <= 0f)
             {
                 continue;
             }
+
+            aggregateMass += entry.Mass;
+            aggregateCapacity += entry.Capacity;
 
             PropellantSample sample = default;
             sample.Name = name;
@@ -437,6 +478,11 @@ public static class TelemetrySampler
         }
 
         snapshot.Propellants.Sort(static (a, b) => b.Mass.CompareTo(a.Mass));
+
+        snapshot.PropellantCapacity = aggregateCapacity;
+        snapshot.PropellantFraction = aggregateCapacity > 0f
+            ? Math.Clamp(aggregateMass / aggregateCapacity, 0f, 1f)
+            : 0f;
     }
 
     private struct SubstanceTotal

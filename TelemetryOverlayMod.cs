@@ -14,6 +14,7 @@ public class TelemetryOverlayMod
     private readonly Rendering.OverlayRenderer _renderer;
 
     private bool _disabled;
+    private string? _modDirectory;
 
     public TelemetryOverlayMod()
     {
@@ -29,6 +30,7 @@ public class TelemetryOverlayMod
     [StarMapImmediateLoad]
     public void OnImmediateLoad(Mod mod)
     {
+        _modDirectory = mod.DirectoryPath;
         Console.WriteLine(LogPrefix + $"attached to KSA mod '{mod.Id}'");
     }
 
@@ -48,7 +50,7 @@ public class TelemetryOverlayMod
 
         try
         {
-            TelemetrySampler.Sample(_snapshot);
+            TelemetrySampler.Sample(_snapshot, dtPlayer);
         }
         catch (Exception ex)
         {
@@ -66,6 +68,9 @@ public class TelemetryOverlayMod
 
         try
         {
+            Rendering.OverlayFonts.TryLoad(_modDirectory);
+
+            _renderer.MissionClock.MissionNameOverride = _config.MissionName;
             _renderer.Draw(_snapshot, dt);
         }
         catch (Exception ex)

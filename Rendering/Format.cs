@@ -56,4 +56,47 @@ public static class Format
     public static ReadOnlySpan<char> Number(
         Span<char> buffer, double value, ReadOnlySpan<char> numericFormat, ReadOnlySpan<char> suffix = default)
         => Write(buffer, value, numericFormat, suffix);
+
+    public static ReadOnlySpan<char> MissionTime(Span<char> buffer, double seconds)
+    {
+        if (buffer.Length < 12)
+        {
+            return "--:--:--".AsSpan();
+        }
+
+        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0.0)
+        {
+            seconds = 0.0;
+        }
+
+        long total = (long)seconds;
+        long hours = total / 3600L;
+        int minutes = (int)(total % 3600L / 60L);
+        int secs = (int)(total % 60L);
+
+        int written = 0;
+
+        if (hours < 100L)
+        {
+            buffer[written++] = (char)('0' + (int)(hours / 10L % 10L));
+            buffer[written++] = (char)('0' + (int)(hours % 10L));
+        }
+        else if (!hours.TryFormat(buffer[written..], out int hourChars))
+        {
+            return "--:--:--".AsSpan();
+        }
+        else
+        {
+            written += hourChars;
+        }
+
+        buffer[written++] = ':';
+        buffer[written++] = (char)('0' + minutes / 10);
+        buffer[written++] = (char)('0' + minutes % 10);
+        buffer[written++] = ':';
+        buffer[written++] = (char)('0' + secs / 10);
+        buffer[written++] = (char)('0' + secs % 10);
+
+        return buffer[..written];
+    }
 }
