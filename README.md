@@ -19,7 +19,7 @@ I am completely open to contributions and suggestions and certainly issue report
 
 ## Installation
 
-Download from Releases or from [https://spacedock.info/mod/4552/Webcast%20Telemetry%20Overlay](Spacedock).
+Download from Releases or from [Spacedock](https://spacedock.info/mod/4552/Webcast%20Telemetry%20Overlay).
 
 Extract into `Documents/My Games/Kitten Space Agency/mods/` and add to `manifest.toml`:
 
