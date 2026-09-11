@@ -1,47 +1,61 @@
-using KSA;
-
 namespace KSATelemetryOverlay.Telemetry;
-
 public sealed class MissionClock
 {
     private const double MinAscentRate = 0.5;
-    private string _vehicleId = string.Empty;
-    private double _liftoffTime;
+
+    private double _liftoffUniverseSeconds;
     private bool _hasLiftoff;
+    private bool _sawPreLaunch;
     public double ElapsedSeconds { get; private set; }
     public bool HasLiftoff => _hasLiftoff;
     public bool LiftoffThisFrame { get; private set; }
 
+    public bool EpochInferred { get; private set; }
+
     public void Reset()
     {
-        _vehicleId = string.Empty;
-        _liftoffTime = 0.0;
+        _liftoffUniverseSeconds = 0.0;
         _hasLiftoff = false;
+        _sawPreLaunch = false;
         ElapsedSeconds = 0.0;
         LiftoffThisFrame = false;
+        EpochInferred = false;
     }
 
-    public void Update(string vehicleId, bool hasSurfaceContact, double verticalSpeed, bool isUnderPower)
+    public void Update(
+        double nowUniverseSeconds,
+        double launchGameSeconds,
+        bool hasLaunched,
+        bool hasSurfaceContact,
+        double verticalSpeed,
+        bool isUnderPower)
     {
         LiftoffThisFrame = false;
 
-        if (!string.Equals(_vehicleId, vehicleId, StringComparison.Ordinal))
+        if (!hasLaunched)
         {
-            _vehicleId = vehicleId;
-            _liftoffTime = 0.0;
-            _hasLiftoff = false;
-            ElapsedSeconds = 0.0;
+            _sawPreLaunch = true;
         }
-
-        double now = Universe.GetElapsedSeconds();
 
         if (!_hasLiftoff)
         {
-            if (!hasSurfaceContact && isUnderPower && verticalSpeed > MinAscentRate)
+            bool observedLiftoff = _sawPreLaunch
+                && !hasSurfaceContact
+                && isUnderPower
+                && verticalSpeed > MinAscentRate;
+
+            if (observedLiftoff)
             {
-                _liftoffTime = now;
+                _liftoffUniverseSeconds = nowUniverseSeconds;
                 _hasLiftoff = true;
+                EpochInferred = false;
                 LiftoffThisFrame = true;
+            }
+            else if (hasLaunched)
+            {
+                _liftoffUniverseSeconds = launchGameSeconds;
+                _hasLiftoff = true;
+                EpochInferred = true;
             }
             else
             {
@@ -50,11 +64,14 @@ public sealed class MissionClock
             }
         }
 
-        if (now < _liftoffTime)
+        if (nowUniverseSeconds < _liftoffUniverseSeconds)
         {
-            _liftoffTime = now;
+            _liftoffUniverseSeconds = nowUniverseSeconds;
         }
 
-        ElapsedSeconds = now - _liftoffTime;
+        ElapsedSeconds = nowUniverseSeconds - _liftoffUniverseSeconds;
     }
+
+    public double MissionTimeFor(double universeSeconds, double nowUniverseSeconds)
+        => universeSeconds - (_hasLiftoff ? _liftoffUniverseSeconds : nowUniverseSeconds);
 }

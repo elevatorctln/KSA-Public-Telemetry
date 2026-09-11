@@ -9,7 +9,8 @@ public static class Gfx
     {
         drawList.AddRectFilled(in min, in max, OverlayStyle.WithOpacity(OverlayStyle.PanelBackground, opacity), rounding);
     }
-    public static void VerticalGradient(
+
+    private static void VerticalGradient(
         ImDrawListPtr drawList, float2 min, float2 max, uint topColor, uint bottomColor, float opacity)
     {
         uint top = OverlayStyle.WithOpacity(topColor, opacity);
@@ -18,81 +19,185 @@ public static class Gfx
         drawList.AddRectFilledMultiColor(in min, in max, top, top, bottom, bottom);
     }
 
-    public static void BottomShelf(
+    private const float ShelfColumnWidth = 1f;
+    private const int FadeStops = 20;
+    private const float BoxFloorFraction = 0.15f;
+    public static void BottomFade(
         ImDrawListPtr drawList,
         float2 viewportPos,
         float2 viewportSize,
-        float bandHeight,
-        float shoulderDrop,
-        float shoulderWidth,
+        float height,
         float opacity)
     {
         float bottom = viewportPos.Y + viewportSize.Y;
-        float bandTop = bottom - bandHeight;
+        float top = bottom - height;
 
         float left = viewportPos.X;
         float right = viewportPos.X + viewportSize.X;
 
-        float2 centreMin = new(left + shoulderWidth, bandTop);
-        float2 centreMax = new(right - shoulderWidth, bottom);
-
-        if (centreMax.X > centreMin.X)
+        if (right <= left || height <= 0f)
         {
-            VerticalGradient(drawList, centreMin, centreMax,
-                OverlayStyle.ShelfTop, OverlayStyle.ShelfBottom, opacity);
+            return;
         }
 
-        const int steps = 24;
-        float shoulderTop = bandTop + shoulderDrop;
-
-        for (int i = 0; i < steps; i++)
+        float topAlpha = ((OverlayStyle.ShelfTop >> 24) & 0xFFu) / 255f;
+        float bottomAlpha = ((OverlayStyle.ShelfBottom >> 24) & 0xFFu) / 255f;
+        uint Tone(float t)
         {
-            float t0 = i / (float)steps;
-            float t1 = (i + 1) / (float)steps;
-            float e0 = t0 * t0;
-            float e1 = t1 * t1;
+            float eased = 1f - (1f - t) * (1f - t);
+            float a = topAlpha + (bottomAlpha - topAlpha) * eased;
+            return OverlayStyle.WithOpacity((OverlayStyle.ShelfBottom & 0x00FFFFFFu) | 0xFF000000u, opacity * a);
+        }
 
-            float lx0 = left + shoulderWidth * (1f - t0);
-            float lx1 = left + shoulderWidth * (1f - t1);
-            DrawShoulderColumn(drawList, lx1, lx0, bandTop, shoulderTop, bottom, e1, e0, opacity);
+        for (int i = 0; i < FadeStops; i++)
+        {
+            float t0 = i / (float)FadeStops;
+            float t1 = (i + 1) / (float)FadeStops;
 
-            float rx0 = right - shoulderWidth * (1f - t0);
-            float rx1 = right - shoulderWidth * (1f - t1);
-            DrawShoulderColumn(drawList, rx0, rx1, bandTop, shoulderTop, bottom, e0, e1, opacity);
+            float2 min = new(left, top + height * t0);
+            float2 max = new(right, top + height * t1);
+
+            uint c0 = Tone(t0);
+            uint c1 = Tone(t1);
+
+            drawList.AddRectFilledMultiColor(in min, in max, c0, c0, c1, c1);
         }
     }
 
-    private static void DrawShoulderColumn(
+    public static void ShelfBox(
         ImDrawListPtr drawList,
-        float x0,
-        float x1,
-        float bandTop,
-        float shoulderTop,
-        float bottom,
-        float tNear,
-        float tFar,
+        float2 viewportPos,
+        float2 viewportSize,
+        float height,
+        float flatWidth,
+        float slope,
+        float cornerRadius,
+        bool onLeft,
         float opacity)
     {
-        if (x1 <= x0)
+        if (height <= 0f || flatWidth <= 0f || slope <= 0f)
         {
             return;
         }
 
-        float t = (tNear + tFar) * 0.5f;
-        float top = bandTop + (shoulderTop - bandTop) * t;
+        float bottom = viewportPos.Y + viewportSize.Y;
+        float top = bottom - height;
 
-        if (top >= bottom)
+        float edgeX = onLeft ? viewportPos.X : viewportPos.X + viewportSize.X;
+        float direction = onLeft ? 1f : -1f;
+        float kneeX = edgeX + direction * flatWidth;
+
+        float radius = MathF.Max(cornerRadius, 0.01f);
+        float Drop(float past)
+        {
+            if (past <= 0f)
+            {
+                return 0f;
+            }
+
+            return past < radius
+                ? slope * past * past / (2f * radius)
+                : slope * (past - radius * 0.5f);
+        }
+
+        uint Tone(float t)
+        {
+            float f = 1f - Math.Clamp(t, 0f, 1f) * (1f - BoxFloorFraction);
+            return OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity * f);
+        }
+
+        uint bottomColor = Tone(1f);
+
+        float totalRun = flatWidth + height / slope + radius * 0.5f;
+        float step = MathF.Max(ShelfColumnWidth, 1f);
+
+        for (float offset = 0f; offset < totalRun; offset += step)
+        {
+            float span = MathF.Min(step, totalRun - offset);
+            float centre = offset + span * 0.5f;
+
+            float columnTop = top + Drop(centre - flatWidth);
+            if (columnTop >= bottom)
+            {
+                break;
+            }
+
+            float xa = edgeX + direction * offset;
+            float xb = edgeX + direction * (offset + span);
+
+            float x0 = MathF.Min(xa, xb);
+            float x1 = MathF.Max(xa, xb);
+
+            float snapped = MathF.Floor(columnTop);
+            float coverage = 1f - (columnTop - snapped);
+
+            if (coverage > 0.01f && coverage < 0.99f)
+            {
+                float2 edgeMin = new(x0, snapped);
+                float2 edgeMax = new(x1, snapped + 1f);
+
+                drawList.AddRectFilled(in edgeMin, in edgeMax,
+                    OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity * coverage), 0f);
+            }
+
+            float fillTop = snapped + 1f;
+            if (fillTop >= bottom)
+            {
+                continue;
+            }
+
+            uint topColor = Tone((fillTop - top) / height);
+
+            float2 min = new(x0, fillTop);
+            float2 max = new(x1, bottom);
+
+            drawList.AddRectFilledMultiColor(in min, in max, topColor, topColor, bottomColor, bottomColor);
+        }
+    }
+    public static void FadedTrack(
+        ImDrawListPtr drawList,
+        float left,
+        float right,
+        float splitX,
+        float y,
+        float thickness,
+        uint beforeColor,
+        uint afterColor,
+        float fadeWidth,
+        float opacity,
+        int segments = 72)
+    {
+        float span = right - left;
+        if (span <= 0f || segments < 1)
         {
             return;
         }
 
-        float edgeFade = 1f - t;
+        float step = span / segments;
 
-        float2 min = new(x0, top);
-        float2 max = new(x1, bottom);
+        for (int i = 0; i < segments; i++)
+        {
+            float x0 = left + step * i;
+            float x1 = x0 + step;
+            float centre = (x0 + x1) * 0.5f;
 
-        VerticalGradient(drawList, min, max,
-            OverlayStyle.ShelfTop, OverlayStyle.ShelfBottom, opacity * edgeFade);
+            float distanceToEnd = MathF.Min(centre - left, right - centre);
+            float edgeFade = fadeWidth > 0f
+                ? Math.Clamp(distanceToEnd / fadeWidth, 0f, 1f)
+                : 1f;
+
+            if (edgeFade <= 0f)
+            {
+                continue;
+            }
+
+            float2 a = new(x0, y);
+            float2 b = new(x1 + 0.5f, y);
+
+            drawList.AddLine(in a, in b,
+                OverlayStyle.WithOpacity(centre <= splitX ? beforeColor : afterColor, opacity * edgeFade),
+                thickness);
+        }
     }
 
     public static void GaugePlate(
@@ -107,13 +212,15 @@ public static class Gfx
                 OverlayStyle.WithOpacity(OverlayStyle.GaugeRim, opacity), 48, MathF.Max(1f, scale));
         }
     }
-
-    public static float2 ReadoutCapsule(
+    private const float ValueWidthFraction = 1.55f;
+    private const float MinValueShrink = 0.62f;
+    public static void ReadoutCapsule(
         ImDrawListPtr drawList,
         float2 center,
         float radius,
         ReadOnlySpan<char> label,
         ReadOnlySpan<char> value,
+        ReadOnlySpan<char> unit,
         uint valueColor,
         float opacity,
         float scale)
@@ -132,10 +239,23 @@ public static class Gfx
         float labelSize = OverlayFonts.LabelSize * scale;
         float valueSize = OverlayFonts.NumericSize * scale;
 
-        float2 labelExtent = MeasureWithFont(OverlayFonts.Label, labelSize, label);
         float2 valueExtent = MeasureWithFont(OverlayFonts.Numeric, valueSize, value);
+        float maxValueWidth = radius * ValueWidthFraction;
 
-        float groupHeight = labelExtent.Y + valueExtent.Y;
+        if (valueExtent.X > maxValueWidth && valueExtent.X > 0f)
+        {
+            valueSize *= MathF.Max(maxValueWidth / valueExtent.X, MinValueShrink);
+            valueExtent = MeasureWithFont(OverlayFonts.Numeric, valueSize, value);
+        }
+
+        float2 labelExtent = MeasureWithFont(OverlayFonts.Label, labelSize, label);
+
+        float unitSize = labelSize * 0.85f;
+        float2 unitExtent = unit.IsEmpty
+            ? default
+            : MeasureWithFont(OverlayFonts.Label, unitSize, unit);
+
+        float groupHeight = labelExtent.Y + valueExtent.Y + unitExtent.Y;
         float top = center.Y - groupHeight * 0.5f;
 
         TextCenteredFont(
@@ -146,102 +266,21 @@ public static class Gfx
             drawList, OverlayFonts.Numeric, valueSize,
             center.X, top + labelExtent.Y, valueColor, value, opacity);
 
-        return center;
+        if (!unit.IsEmpty)
+        {
+            TextCenteredFont(
+                drawList, OverlayFonts.Label, unitSize,
+                center.X, top + labelExtent.Y + valueExtent.Y,
+                OverlayStyle.TextDim, unit, opacity);
+        }
     }
-
-    public static void Text(ImDrawListPtr drawList, float2 pos, uint color, ReadOnlySpan<char> text, float opacity)
+    private static void Text(ImDrawListPtr drawList, float2 pos, uint color, ReadOnlySpan<char> text, float opacity)
     {
         float2 shadowPos = pos + new float2(1f, 1f);
         drawList.AddText(in shadowPos, OverlayStyle.WithOpacity(OverlayStyle.TextShadow, opacity), text);
         drawList.AddText(in pos, OverlayStyle.WithOpacity(color, opacity), text);
     }
-    public static void TextCentered(
-        ImDrawListPtr drawList, float centerX, float y, uint color, ReadOnlySpan<char> text, float opacity)
-    {
-        float width = ImGui.CalcTextSize(text).X;
-        Text(drawList, new float2(centerX - width * 0.5f, y), color, text, opacity);
-    }
 
-    public static void TextRight(
-        ImDrawListPtr drawList, float rightX, float y, uint color, ReadOnlySpan<char> text, float opacity)
-    {
-        float width = ImGui.CalcTextSize(text).X;
-        Text(drawList, new float2(rightX - width, y), color, text, opacity);
-    }
-    public static void FillBar(
-        ImDrawListPtr drawList,
-        float2 min,
-        float2 size,
-        float fraction,
-        uint fillColor,
-        float opacity,
-        float markerFraction = -1f)
-    {
-        float2 max = min + size;
-        drawList.AddRectFilled(in min, in max, OverlayStyle.WithOpacity(OverlayStyle.BarTrack, opacity), 2f);
-
-        float clamped = Math.Clamp(fraction, 0f, 1f);
-        if (clamped > 0f)
-        {
-            float2 fillMax = new(min.X + size.X * clamped, max.Y);
-            drawList.AddRectFilled(in min, in fillMax, OverlayStyle.WithOpacity(fillColor, opacity), 2f);
-        }
-
-        if (markerFraction >= 0f)
-        {
-            float markerX = min.X + size.X * Math.Clamp(markerFraction, 0f, 1f);
-            float2 markerMin = new(markerX - 1f, min.Y);
-            float2 markerMax = new(markerX + 1f, max.Y);
-            drawList.AddRectFilled(in markerMin, in markerMax, OverlayStyle.WithOpacity(OverlayStyle.MaxQMarker, opacity));
-        }
-    }
-    public static void TextClipped(
-        ImDrawListPtr drawList, float2 pos, uint color, ReadOnlySpan<char> text, float maxWidth, float opacity)
-    {
-        if (maxWidth <= 0f)
-        {
-            return;
-        }
-
-        if (ImGui.CalcTextSize(text).X <= maxWidth)
-        {
-            Text(drawList, pos, color, text, opacity);
-            return;
-        }
-
-        Span<char> buffer = stackalloc char[96];
-        int lo = 0;
-        int hi = Math.Min(text.Length, buffer.Length - 1);
-        int best = 0;
-
-        while (lo <= hi)
-        {
-            int mid = (lo + hi) / 2;
-            text[..mid].CopyTo(buffer);
-            buffer[mid] = Ellipsis;
-
-            if (ImGui.CalcTextSize(buffer[..(mid + 1)]).X <= maxWidth)
-            {
-                best = mid;
-                lo = mid + 1;
-            }
-            else
-            {
-                hi = mid - 1;
-            }
-        }
-
-        if (best <= 0)
-        {
-            return;
-        }
-
-        text[..best].CopyTo(buffer);
-        buffer[best] = Ellipsis;
-        Text(drawList, pos, color, buffer[..(best + 1)], opacity);
-    }
-
-    private const char Ellipsis = '…';
     public static bool PushFont(ImFontPtr? font, float sizePixels)
     {
         if (!font.HasValue)
@@ -328,11 +367,5 @@ public static class Gfx
         drawList.PathClear();
         drawList.PathArcTo(in center, radius, a0, a1, segments);
         drawList.PathStroke(OverlayStyle.WithOpacity(color, opacity), ImDrawFlags.None, thickness);
-    }
-    public static void Separator(ImDrawListPtr drawList, float x0, float x1, float y, float opacity)
-    {
-        float2 a = new(x0, y);
-        float2 b = new(x1, y);
-        drawList.AddLine(in a, in b, OverlayStyle.WithOpacity(OverlayStyle.Hairline, opacity), 1f);
     }
 }

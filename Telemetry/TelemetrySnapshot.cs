@@ -68,9 +68,13 @@ public sealed class TelemetrySnapshot
     public readonly List<PropellantSample> Propellants = new(8);
     public float PropellantFraction;
     public float PropellantCapacity;
-
     public int BurningEngineCount;
     public int TotalEngineCount;
+    public int PartCount;
+    public bool HasLaunched;
+    public double LaunchUniverseSeconds;
+    public bool ClockEpochInferred;
+    public MissionEventLog? Events;
     public void Clear()
     {
         HasVehicle = false;
@@ -89,6 +93,11 @@ public sealed class TelemetrySnapshot
         Engines.Clear();
         Propellants.Clear();
         BurningEngineCount = TotalEngineCount = 0;
+        PartCount = 0;
+        HasLaunched = false;
+        LaunchUniverseSeconds = 0;
+        ClockEpochInferred = false;
+        Events = null;
     }
 
     public void ResetRecords() => MaxDynamicPressure = 0f;

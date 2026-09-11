@@ -14,9 +14,10 @@ public static class OverlayFonts
     public static ImFontPtr? Label { get; private set; }
     public static ImFontPtr? Body { get; private set; }
     public static bool IsLoaded => Numeric.HasValue;
-    public const float NumericSize = 34f;
-    public const float LabelSize = 12f;
-    public const float BodySize = 16f;
+    public const float NumericSize = 30f;
+    public const float ClockSize = 44f;
+    public const float LabelSize = 19f;
+    public const float BodySize = 20f;
     public static void TryLoad(string? modDirectory)
     {
         if (_attempted)
@@ -34,7 +35,7 @@ public static class OverlayFonts
             if (regular is null && bold is null)
             {
                 Console.WriteLine(
-                    "[TelemetryOverlay] Montserrat not found; using the game font.");
+                    "[KSATelemetryOverlay] Montserrat not found; using the game font.");
                 return;
             }
 
@@ -44,11 +45,11 @@ public static class OverlayFonts
 
             ImFontAtlasPtr atlas = ImGui.GetIO().Fonts;
 
-            Numeric = Load(atlas, numericSource, NumericSize);
+            Numeric = Load(atlas, numericSource, ClockSize);
             Label = Load(atlas, labelSource, LabelSize);
             Body = Load(atlas, bodySource, BodySize);
 
-            Console.WriteLine("[TelemetryOverlay] loaded Montserrat overlay fonts.");
+            Console.WriteLine("[KSATelemetryOverlay] loaded Montserrat overlay fonts.");
         }
         catch (Exception ex)
         {

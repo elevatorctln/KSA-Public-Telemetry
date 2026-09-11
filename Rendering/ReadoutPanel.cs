@@ -18,8 +18,8 @@ public enum ReadoutKind : byte
 
 public sealed class ReadoutPanel : IOverlayPanel
 {
-    private const float CapsuleSize = 108f;
-    private const float CapsuleGap = 6f;
+    private const float CapsuleSize = 150f;
+    private const float CapsuleGap = 3f;
 
     private readonly float[] _smoothed;
     private bool _initialised;
@@ -79,22 +79,9 @@ public sealed class ReadoutPanel : IOverlayPanel
 
             Gfx.ReadoutCapsule(
                 context.DrawList, center, radius,
-                LabelFor(kind), value,
+                LabelFor(kind), value, UnitFor(kind),
                 ColorFor(kind, _smoothed[i], context.Snapshot),
                 context.Opacity, scale);
-
-            ReadOnlySpan<char> unit = UnitFor(kind);
-            if (unit.Length > 0)
-            {
-                float labelSize = OverlayFonts.LabelSize * scale;
-                float2 numExtent = Gfx.MeasureWithFont(
-                    OverlayFonts.Numeric, OverlayFonts.NumericSize * scale, value);
-
-                Gfx.TextCenteredFont(
-                    context.DrawList, OverlayFonts.Label, labelSize * 0.85f,
-                    center.X, center.Y + numExtent.Y * 0.5f,
-                    OverlayStyle.TextDim, unit, context.Opacity);
-            }
         }
     }
 
@@ -143,7 +130,7 @@ public sealed class ReadoutPanel : IOverlayPanel
         _                           => 0f,
     };
 
-    private static ReadOnlySpan<char> LabelFor(ReadoutKind kind) => kind switch
+    public static ReadOnlySpan<char> LabelFor(ReadoutKind kind) => kind switch
     {
         ReadoutKind.Speed           => "SPEED".AsSpan(),
         ReadoutKind.Altitude        => "ALTITUDE".AsSpan(),

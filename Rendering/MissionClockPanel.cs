@@ -12,8 +12,6 @@ public sealed class MissionClockPanel : IOverlayPanel
 
     public string DisplayName => "Mission Clock";
 
-    public string? MissionNameOverride { get; set; }
-
     public bool IsVisible(in PanelContext context)
         => context.Config.ShowMissionClock && context.Snapshot.HasVehicle;
 
@@ -22,7 +20,7 @@ public sealed class MissionClockPanel : IOverlayPanel
         Span<char> buffer = stackalloc char[16];
         ReadOnlySpan<char> time = Format.MissionTime(buffer, context.Snapshot.MissionElapsedSeconds);
 
-        float2 timeSize = Gfx.MeasureWithFont(OverlayFonts.Numeric, OverlayFonts.NumericSize, time);
+        float2 timeSize = Gfx.MeasureWithFont(OverlayFonts.Numeric, OverlayFonts.ClockSize, time);
         float2 prefixSize = Gfx.MeasureWithFont(OverlayFonts.Body, OverlayFonts.BodySize, "T+".AsSpan());
 
         ReadOnlySpan<char> name = ResolveMissionName(in context);
@@ -42,7 +40,7 @@ public sealed class MissionClockPanel : IOverlayPanel
         float opacity = context.Opacity;
         float scale = context.Scale;
 
-        float numericSize = OverlayFonts.NumericSize * scale;
+        float numericSize = OverlayFonts.ClockSize * scale;
         float bodySize = OverlayFonts.BodySize * scale;
         float labelSize = OverlayFonts.LabelSize * scale;
 
@@ -86,12 +84,13 @@ public sealed class MissionClockPanel : IOverlayPanel
     public void Reset()
     {
     }
-
-    private ReadOnlySpan<char> ResolveMissionName(in PanelContext context)
+    
+    private static ReadOnlySpan<char> ResolveMissionName(in PanelContext context)
     {
-        if (!string.IsNullOrWhiteSpace(MissionNameOverride))
+        string? configured = context.Config.MissionName;
+        if (!string.IsNullOrWhiteSpace(configured))
         {
-            return MissionNameOverride.AsSpan();
+            return configured.AsSpan();
         }
 
         string vehicle = context.Snapshot.VehicleName;

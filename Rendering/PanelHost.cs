@@ -27,6 +27,33 @@ public sealed class PanelHost
         return slot;
     }
 
+    public float MeasureGroupWidth(in PanelContext context, PanelAnchor anchor)
+    {
+        float scale = context.Scale;
+        float gap = PanelGap * scale;
+        float total = 0f;
+
+        for (int i = 0; i < _slots.Count; i++)
+        {
+            PanelSlot slot = _slots[i];
+
+            if (slot.Anchor != anchor || !slot.StackHorizontally || !slot.Panel.IsVisible(in context))
+            {
+                continue;
+            }
+
+            float width = slot.Panel.Measure(in context).X * scale;
+            if (width <= 0f)
+            {
+                continue;
+            }
+
+            total += total > 0f ? width + gap : width;
+        }
+
+        return total;
+    }
+
     public void ResetAll()
     {
         for (int i = 0; i < _slots.Count; i++)

@@ -6,13 +6,13 @@ namespace KSATelemetryOverlay.Rendering;
 
 public sealed class EngineClusterPanel : IOverlayPanel
 {
-    private const float PreferredSize = 150f;
+    private const float PreferredSize = 145f;
     private const float ArcHalfSweep = MathF.PI * 0.75f;
-
     private const float EnvelopeMargin = 3f;
     private const float MinDotRadius = 3.5f;
-    private const float NeighbourFillFraction = 0.92f;
+    private const float NeighbourFillFraction = 0.9f;
     private const float SingleEngineRadius = 0.42f;
+    private const float ClusterFillFraction = 0.9f;
     private float _propellant;
     private bool _initialised;
 
@@ -129,6 +129,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
         float normalised = ComputeNormalisedDotRadius(engines);
         float margin = EnvelopeMargin * scale;
         float plotRadius = MathF.Max((radius - margin) / (1f + normalised * maxSizeFactor), 1f);
+        plotRadius *= ClusterFillFraction;
         float baseDotRadius = MathF.Max(normalised * plotRadius, MinDotRadius * scale);
 
         for (int i = 0; i < engines.Count; i++)
@@ -144,8 +145,8 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
             if (engine.IsBurning)
             {
-                // Soft halo reads as "lit" at a glance.
-                drawList.AddCircleFilled(in pos, dotRadius * 1.3f,
+                // subtle glow around burning engines
+                drawList.AddCircleFilled(in pos, dotRadius * 1.1f,
                     OverlayStyle.WithOpacity(color, opacity * 0.20f));
             }
 

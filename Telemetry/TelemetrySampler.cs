@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Brutal.Numerics;
 using KSA;
 
@@ -8,10 +9,20 @@ public static class TelemetrySampler
     private const double StandardGravity = 9.80665;
     private const float NominalThrottleThreshold = 0.95f;
     private static string _lastVehicleId = string.Empty;
-    private static readonly MissionClock _clock = new();
     private static readonly SignalState _signal = new();
-    public static MissionClock Clock => _clock;
+    private static readonly MissionRegistry _missions = new();
+    private static readonly List<double> _burnTimes = new(8);
     public static SignalState Signal => _signal;
+    public static MissionRegistry Missions => _missions;
+    public static void Reset()
+    {
+        _lastVehicleId = string.Empty;
+        _signal.Reset();
+        _missions.Clear();
+        _substanceTotals.Clear();
+        _overlapGroup.Clear();
+        _burnTimes.Clear();
+    }
 
     public static void Sample(TelemetrySnapshot snapshot, double dt)
     {
@@ -21,7 +32,6 @@ public static class TelemetrySampler
             snapshot.Clear();
             _lastVehicleId = string.Empty;
             _signal.SetNoVehicle();
-            _clock.Reset();
             return;
         }
 
@@ -52,14 +62,56 @@ public static class TelemetrySampler
         SampleEngines(vehicle, snapshot);
         SamplePropellants(vehicle, snapshot);
 
-        _clock.Update(
-            vehicle.Id,
+        double now = Universe.GetElapsedSeconds();
+        UniverseTime launchTime = vehicle.LaunchGameTime;
+
+        snapshot.HasLaunched = vehicle.HasLaunched;
+        snapshot.LaunchUniverseSeconds = launchTime.Seconds();
+
+        Mission mission = _missions.Resolve(launchTime.Nanoseconds, now);
+
+        mission.Clock.Update(
+            now,
+            snapshot.LaunchUniverseSeconds,
+            snapshot.HasLaunched,
             snapshot.HasSurfaceContact,
             snapshot.VerticalSpeed,
             snapshot.BurningEngineCount > 0);
 
-        snapshot.MissionElapsedSeconds = _clock.ElapsedSeconds;
-        snapshot.HasLiftoff = _clock.HasLiftoff;
+        snapshot.MissionElapsedSeconds = mission.Clock.ElapsedSeconds;
+        snapshot.HasLiftoff = mission.Clock.HasLiftoff;
+        snapshot.ClockEpochInferred = mission.Clock.EpochInferred;
+
+        mission.Events.Update(snapshot, mission.Clock.LiftoffThisFrame, dt);
+        SamplePlannedBurns(vehicle, mission, now);
+        snapshot.Events = mission.Events;
+    }
+
+    private static void SamplePlannedBurns(Vehicle vehicle, Mission mission, double nowUniverseSeconds)
+    {
+        _burnTimes.Clear();
+
+        FlightComputer? computer = vehicle.FlightComputer;
+        BurnPlan? plan = computer?.BurnPlan;
+
+        if (plan is null || !plan.HasActiveBurns)
+        {
+            mission.Events.ClearPredictions();
+            return;
+        }
+
+        int count = plan.BurnCount;
+        for (int i = 0; i < count; i++)
+        {
+            if (!plan.TryGetBurn(i, out Burn? burn) || burn is null || !burn.HasDeltaV)
+            {
+                continue;
+            }
+
+            _burnTimes.Add(mission.Clock.MissionTimeFor(burn.Time.Seconds(), nowUniverseSeconds));
+        }
+
+        mission.Events.SetPredictions(CollectionsMarshal.AsSpan(_burnTimes));
     }
 
     private static void SampleKinematics(Vehicle vehicle, TelemetrySnapshot snapshot)
@@ -112,6 +164,7 @@ public static class TelemetrySampler
         Span<EngineController> controllers = parts.Modules.Get<EngineController>();
 
         int activeSequence = parts.SequenceList?.ActiveSequence ?? 0;
+        snapshot.PartCount = parts.Count;
 
         for (int i = 0; i < controllers.Length; i++)
         {
