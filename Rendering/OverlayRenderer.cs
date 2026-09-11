@@ -1,4 +1,5 @@
 using Brutal.ImGuiApi;
+using Brutal.ImGuiApi.Internal;
 using Brutal.Numerics;
 using KSATelemetryOverlay.Telemetry;
 
@@ -6,13 +7,6 @@ namespace KSATelemetryOverlay.Rendering;
 
 public sealed class OverlayRenderer
 {
-    private const float SideMargin = 5f;
-    private const float BoxHeight = 150f + SideMargin + 32f;
-    private const float FadeHeight = BoxHeight * 1.12f;
-    private const float DiagonalSlope = 0.8f;
-    private const float BoxCornerRadius = 50f;
-    private const float BoxPadding = 30f;
-    private const float MinBoxFlatWidth = 140f;
     private readonly OverlayConfig _config;
     private PanelHost _host = new();
     private readonly FlightUiController _flightUi = new();
@@ -33,6 +27,7 @@ public sealed class OverlayRenderer
     }
 
     public void RestoreFlightUi() => _flightUi.Restore();
+    public void ReplayIntro() => _intro.Restart();
 
     private void RebuildPanels()
     {
@@ -114,14 +109,24 @@ public sealed class OverlayRenderer
         ImGuiViewportPtr viewport = ImGui.GetMainViewport();
         ImDrawListPtr drawList = ImGui.GetForegroundDrawList();
 
-        PanelContext context = new(drawList, snapshot, _config, dt, _intro.Phases);
+        PanelContext context = new(
+            drawList, snapshot, _config, dt, _intro.Phases,
+            viewport.WorkPos, viewport.WorkSize, _intro);
 
         if (_config.ShowBackdrop)
         {
             DrawBackdrop(in context, drawList, viewport);
         }
 
-        _host.DrawAll(in context, viewport.WorkPos, viewport.WorkSize);
+        // Top-anchored panels start below the menu bar. Taking it off the top of the
+        // work area leaves the bottom edge exactly where it was, so only the
+        // notifications move.
+        float topInset = MenuBarInset(viewport);
+
+        _host.DrawAll(
+            in context,
+            new float2(viewport.WorkPos.X, viewport.WorkPos.Y + topInset),
+            new float2(viewport.WorkSize.X, viewport.WorkSize.Y - topInset));
 
         if (snapshot.IsFrozen)
         {
@@ -129,10 +134,39 @@ public sealed class OverlayRenderer
         }
     }
 
+    /// <summary>
+    /// How far down the game's menu bar reaches into the viewport.
+    ///
+    /// It has to be measured rather than read off the viewport: KSA's bar is a plain
+    /// window pinned to the top (Program.cs, "Menu Bar", auto-height) and not an
+    /// ImGui main menu bar, so it reserves no work area at all and WorkPos sits level
+    /// with Pos. The bar also auto-hides, and its height follows the interface scale,
+    /// so a fixed offset would be wrong about as often as it was right.
+    ///
+    /// Falls back to nothing but the clearance if the window cannot be found, which
+    /// is what happens on the first frame and would happen if KSA ever renames it.
+    /// </summary>
+    private static float MenuBarInset(ImGuiViewportPtr viewport)
+    {
+        float clearance = Tuning.MenuBarClearance;
+        ImGuiWindowPtr bar = ImGui.Internal.FindWindowByName("Menu Bar"u8);
+
+        if (bar.IsNull() || !bar.WasActive)
+        {
+            return clearance;
+        }
+
+        float overlap = bar.Pos.Y + bar.Size.Y - viewport.WorkPos.Y;
+
+        return overlap > 0f ? overlap + clearance : clearance;
+    }
+
     private void DrawBackdrop(in PanelContext context, ImDrawListPtr drawList, ImGuiViewportPtr viewport)
     {
         float scale = context.Scale;
-        Gfx.BottomFade(drawList, viewport.Pos, viewport.Size, FadeHeight * scale, context.BackdropOpacity);
+        float fadeHeight = Tuning.BoxHeight * Tuning.FadeHeightFactor * scale;
+
+        Gfx.BottomFade(drawList, viewport.Pos, viewport.Size, fadeHeight, context.BackdropOpacity);
 
         DrawShelfBox(in context, drawList, viewport, PanelAnchor.BottomLeft, onLeft: true);
         DrawShelfBox(in context, drawList, viewport, PanelAnchor.BottomRight, onLeft: false);
@@ -152,14 +186,20 @@ public sealed class OverlayRenderer
             return;
         }
 
+        float remaining = MathF.Pow(
+            1f - Math.Clamp(context.Intro.Backdrop, 0f, 1f), MathF.Max(Tuning.ShelfSlideEase, 0.01f));
+
+        float slideOffset = remaining * Tuning.ShelfSlideDistance * context.Scale;
+
         Gfx.ShelfBox(
             drawList, viewport.Pos, viewport.Size,
-            BoxHeight * context.Scale,
+            Tuning.BoxHeight * context.Scale,
             flatWidth,
-            DiagonalSlope,
-            BoxCornerRadius * context.Scale,
+            Tuning.DiagonalSlope,
+            Tuning.BoxCornerRadius * context.Scale,
             onLeft,
-            context.BackdropOpacity);
+            context.BackdropOpacity,
+            slideOffset);
     }
 
     private float FlatWidthFor(in PanelContext context, PanelAnchor anchor)
@@ -174,8 +214,8 @@ public sealed class OverlayRenderer
         float scale = context.Scale;
 
         return MathF.Max(
-            SideMargin * scale + groupWidth + BoxPadding * scale,
-            MinBoxFlatWidth * scale);
+            Tuning.PanelEdgeMarginX * scale + groupWidth + Tuning.BoxPadding * scale,
+            Tuning.MinBoxFlatWidth * scale);
     }
 
     private void DrawSignalLostBanner(ImDrawListPtr drawList, float2 viewportPos, float2 viewportSize)
@@ -214,8 +254,8 @@ public sealed class OverlayRenderer
         float padY = 7f * _config.Scale;
 
         float2 min = new(
-            viewport.Pos.X + SideMargin * _config.Scale,
-            viewport.Pos.Y + viewport.Size.Y - extent.Y - padY * 2f - SideMargin * _config.Scale);
+            viewport.Pos.X + Tuning.SideMargin * _config.Scale,
+            viewport.Pos.Y + viewport.Size.Y - extent.Y - padY * 2f - Tuning.SideMargin * _config.Scale);
         float2 max = min + new float2(extent.X + padX * 2f, extent.Y + padY * 2f);
 
         Gfx.Panel(drawList, min, max, _config.Opacity);

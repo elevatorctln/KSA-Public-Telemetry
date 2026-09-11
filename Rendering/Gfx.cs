@@ -21,7 +21,6 @@ public static class Gfx
 
     private const float ShelfColumnWidth = 1f;
     private const int FadeStops = 20;
-    private const float BoxFloorFraction = 0.15f;
     public static void BottomFade(
         ImDrawListPtr drawList,
         float2 viewportPos,
@@ -73,7 +72,8 @@ public static class Gfx
         float slope,
         float cornerRadius,
         bool onLeft,
-        float opacity)
+        float opacity,
+        float slideOffset = 0f)
     {
         if (height <= 0f || flatWidth <= 0f || slope <= 0f)
         {
@@ -82,9 +82,9 @@ public static class Gfx
 
         float bottom = viewportPos.Y + viewportSize.Y;
         float top = bottom - height;
-
-        float edgeX = onLeft ? viewportPos.X : viewportPos.X + viewportSize.X;
         float direction = onLeft ? 1f : -1f;
+        float edgeX = (onLeft ? viewportPos.X : viewportPos.X + viewportSize.X)
+            - direction * slideOffset;
         float kneeX = edgeX + direction * flatWidth;
 
         float radius = MathF.Max(cornerRadius, 0.01f);
@@ -102,7 +102,7 @@ public static class Gfx
 
         uint Tone(float t)
         {
-            float f = 1f - Math.Clamp(t, 0f, 1f) * (1f - BoxFloorFraction);
+            float f = 1f - Math.Clamp(t, 0f, 1f) * (1f - Tuning.ShelfFloorFraction);
             return OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity * f);
         }
 
@@ -232,20 +232,33 @@ public static class Gfx
         }
     }
 
+    public const float SweepStartAngle = -MathF.PI * 0.75f;
+
     public static void GaugePlate(
-        ImDrawListPtr drawList, float2 center, float radius, float opacity, bool rim = false, float scale = 1f)
+        ImDrawListPtr drawList, float2 center, float radius, float opacity,
+        bool rim = false, float scale = 1f, float rimPhase = 1f)
     {
         drawList.AddCircleFilled(in center, radius,
             OverlayStyle.WithOpacity(OverlayStyle.GaugePlate, opacity), 48);
 
-        if (rim)
+        if (!rim || rimPhase <= 0f)
         {
-            drawList.AddCircle(in center, radius,
-                OverlayStyle.WithOpacity(OverlayStyle.GaugeRim, opacity), 48, MathF.Max(1f, scale));
+            return;
         }
+
+        float thickness = MathF.Max(1f, scale);
+        uint color = OverlayStyle.WithOpacity(OverlayStyle.GaugeRim, opacity);
+
+        if (rimPhase >= 1f)
+        {
+            drawList.AddCircle(in center, radius, color, 48, thickness);
+            return;
+        }
+
+        Arc(drawList, center, radius,
+            SweepStartAngle, SweepStartAngle + MathF.Tau * rimPhase,
+            OverlayStyle.GaugeRim, thickness, opacity);
     }
-    private const float ValueWidthFraction = 1.55f;
-    private const float MinValueShrink = 0.62f;
 
     public static void ReadoutBrackets(
         ImDrawListPtr drawList, float2 center, float radius, float opacity, float scale)
@@ -278,11 +291,11 @@ public static class Gfx
         float valueSize = OverlayFonts.NumericSize * scale;
 
         float2 valueExtent = MeasureWithFont(OverlayFonts.Numeric, valueSize, value);
-        float maxValueWidth = radius * ValueWidthFraction;
+        float maxValueWidth = radius * Tuning.ValueWidthFraction;
 
         if (valueExtent.X > maxValueWidth && valueExtent.X > 0f)
         {
-            valueSize *= MathF.Max(maxValueWidth / valueExtent.X, MinValueShrink);
+            valueSize *= MathF.Max(maxValueWidth / valueExtent.X, Tuning.MinValueShrink);
         }
 
         labelSize *= textScale;

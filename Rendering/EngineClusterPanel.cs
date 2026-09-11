@@ -8,14 +8,6 @@ public sealed class EngineClusterPanel : IOverlayPanel
 {
     private const float PreferredSize = 145f;
     private const float ArcHalfSweep = MathF.PI * 0.75f;
-    private const float EnvelopeMargin = 3f;
-    private const float MinDotRadius = 3.5f;
-    private const float NeighbourFillFraction = 0.9f;
-    private const float SingleEngineRadius = 0.42f;
-    private const float ClusterFillFraction = 0.9f;
-    private const float StateFadeSeconds = 0.18f;
-    private const double StateJitterSeconds = 0.10;
-    private const float IntroDotStartScale = 0.55f;
     private float _propellant;
     private bool _initialised;
     private struct DotState
@@ -30,8 +22,6 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
     private DotState[] _dots = [];
     private readonly Random _jitter = new();
-    private const float SwapOutSeconds = 0.12f;
-    private const float SwapInSeconds = 0.18f;
     private enum SwapPhase : byte { Idle, Out, In }
     private SwapPhase _swap = SwapPhase.Idle;
     private float _swapT = 1f;
@@ -45,6 +35,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
         public float Normalised;
         public float MaxSizeFactor;
+        public float[] RingStarts = [];
 
         public int Count => Offsets.Count;
 
@@ -65,6 +56,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
             Burning.AddRange(other.Burning);
             Normalised = other.Normalised;
             MaxSizeFactor = other.MaxSizeFactor;
+            RingStarts = other.RingStarts;
         }
     }
 
@@ -96,13 +88,15 @@ public sealed class EngineClusterPanel : IOverlayPanel
         ImDrawListPtr drawList = context.DrawList;
         TelemetrySnapshot snapshot = context.Snapshot;
         float scale = context.Scale;
-        float gaugeOpacity = context.GaugeOpacity;
-        float dotOpacity = context.ReadoutOpacity;
 
         UpdateSmoothing(snapshot, context.DeltaTime, context.Config);
         UpdateCluster(snapshot, context.DeltaTime);
 
         float2 center = origin + size * 0.5f;
+
+        IntroPhases intro = context.IntroFor(center.X, size.X);
+        float gaugeOpacity = context.Opacity * intro.Gauges;
+        float dotOpacity = context.Opacity * intro.Readouts;
         float outerRadius = MathF.Min(size.X, size.Y) * 0.5f;
         float arcRadius = outerRadius - 3f * scale;
         float arcThickness = MathF.Max(2f, 3f * scale);
@@ -112,15 +106,15 @@ public sealed class EngineClusterPanel : IOverlayPanel
             ? arcRadius - arcThickness - 6f * scale
             : outerRadius - 3f * scale;
         float plateRadius = diagramRadius + 4f * scale;
-        Gfx.GaugePlate(drawList, center, plateRadius, gaugeOpacity, rim: true, scale);
+        Gfx.GaugePlate(drawList, center, plateRadius, gaugeOpacity, rim: true, scale, intro.Rim);
 
         if (showArc)
         {
             DrawPropellantArc(
-                drawList, center, arcRadius, arcThickness, gaugeOpacity, context.Intro.ArcSweep);
+                drawList, center, arcRadius, arcThickness, gaugeOpacity, intro.ArcSweep);
         }
 
-        DrawEngines(drawList, center, diagramRadius, dotOpacity, scale, context.Intro.Readouts);
+        DrawEngines(drawList, center, diagramRadius, dotOpacity, scale, intro.Readouts);
     }
 
     private void UpdateSmoothing(TelemetrySnapshot snapshot, double dt, OverlayConfig config)
@@ -150,7 +144,12 @@ public sealed class EngineClusterPanel : IOverlayPanel
         float start = -ArcHalfSweep;
         float end = ArcHalfSweep;
 
-        Gfx.Arc(drawList, center, radius, start, end,
+        if (fillPhase <= 0f)
+        {
+            return;
+        }
+
+        Gfx.Arc(drawList, center, radius, start, start + (end - start) * fillPhase,
             OverlayStyle.ArcTrack, thickness, opacity);
 
         float level = Math.Clamp(_propellant, 0f, 1f) * fillPhase;
@@ -161,7 +160,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
         float fillEnd = start + (end - start) * level;
 
-        // not using this anymore, but want to leave it in for now
+        // not using this anymore, but I want to leave it in for now
         uint fillColor = level <= 0.10f ? OverlayStyle.ArcFill
             : level <= 0.25f ? OverlayStyle.ArcFill
             : OverlayStyle.ArcFill;
@@ -190,7 +189,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
             if (status != dot.Pending)
             {
                 dot.Pending = status;
-                dot.Delay = _jitter.NextDouble() * StateJitterSeconds;
+                dot.Delay = _jitter.NextDouble() * Tuning.StateJitterSeconds;
             }
 
             if (dot.Pending != dot.Shown)
@@ -207,7 +206,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
             if (dot.Fade < 1f)
             {
-                dot.Fade = Math.Clamp(dot.Fade + (float)(dt / StateFadeSeconds), 0f, 1f);
+                dot.Fade = Math.Clamp(dot.Fade + (float)(dt / Tuning.StateFadeSeconds), 0f, 1f);
             }
         }
     }
@@ -238,6 +237,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
             _live.Normalised = engines.Count > 0 ? ComputeNormalisedDotRadius(engines) : 0f;
             _live.MaxSizeFactor = maxSizeFactor;
+            _live.RingStarts = ComputeRingStarts(engines, _live.Normalised);
         }
 
         AdvanceSwap(dt);
@@ -250,7 +250,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
         switch (_swap)
         {
             case SwapPhase.Out:
-                _swapT += (float)(dt / SwapOutSeconds);
+                _swapT += (float)(dt / Tuning.SwapOutSeconds);
                 if (_swapT >= 1f)
                 {
                     _swap = SwapPhase.In;
@@ -259,7 +259,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
                 break;
 
             case SwapPhase.In:
-                _swapT += (float)(dt / SwapInSeconds);
+                _swapT += (float)(dt / Tuning.SwapInSeconds);
                 if (_swapT >= 1f)
                 {
                     _swap = SwapPhase.Idle;
@@ -271,8 +271,6 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
     private void BuildLiveSet(List<EngineSample> engines)
     {
-        // Clear() leaves Normalised/MaxSizeFactor alone - they were solved when
-        // the set was adopted and hold until it changes.
         _live.Clear();
 
         for (int i = 0; i < engines.Count; i++)
@@ -317,23 +315,31 @@ public sealed class EngineClusterPanel : IOverlayPanel
         };
 
         float phase = MathF.Min(introPhase, swapPhase);
-        float alpha = opacity * phase;
 
-        if (alpha <= 0f)
+        if (opacity <= 0f || phase <= 0f)
         {
             return;
         }
 
-        float popScale = IntroDotStartScale + (1f - IntroDotStartScale) * phase;
-
-        float margin = EnvelopeMargin * scale;
+        float margin = Tuning.EnvelopeMargin * scale;
         float plotRadius = MathF.Max(
             (radius - margin) / (1f + set.Normalised * set.MaxSizeFactor), 1f);
-        plotRadius *= ClusterFillFraction;
-        float baseDotRadius = MathF.Max(set.Normalised * plotRadius, MinDotRadius * scale);
+        plotRadius *= Tuning.ClusterFillFraction;
+        float baseDotRadius = MathF.Max(set.Normalised * plotRadius, Tuning.MinDotRadius * scale);
 
         for (int i = 0; i < set.Count; i++)
         {
+            float local = Math.Clamp(
+                (phase - set.RingStarts[i]) / (1f - Tuning.RingStaggerSpan), 0f, 1f);
+
+            if (local <= 0f)
+            {
+                continue;
+            }
+
+            float alpha = opacity * local;
+            float popScale = Tuning.IntroDotStartScale + (1f - Tuning.IntroDotStartScale) * local;
+
             float2 offset = set.Offsets[i];
 
             float2 pos = new(
@@ -347,7 +353,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
             if (set.Burning[i])
             {
-                // subtle glow around burning engines
+                // subtle glow around burning engines. prob should make this configurable but I'll do it later.
                 drawList.AddCircleFilled(in pos, dotRadius * 1.1f,
                     OverlayStyle.WithOpacity(color, alpha * 0.20f));
             }
@@ -368,7 +374,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
         if (count == 1)
         {
-            return SingleEngineRadius;
+            return Tuning.SingleEngineRadius;
         }
 
         float minSeparation = float.MaxValue;
@@ -388,10 +394,62 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
         if (minSeparation == float.MaxValue)
         {
-            return MathF.Min(SingleEngineRadius, 1f / MathF.Sqrt(count));
+            return MathF.Min(Tuning.SingleEngineRadius, 1f / MathF.Sqrt(count));
         }
 
-        return MathF.Min(minSeparation * 0.5f * NeighbourFillFraction, SingleEngineRadius);
+        return MathF.Min(minSeparation * 0.5f * Tuning.NeighbourFillFraction, Tuning.SingleEngineRadius);
+    }
+
+    private static float[] ComputeRingStarts(List<EngineSample> engines, float dotRadius)
+    {
+        int count = engines.Count;
+        float[] starts = new float[count];
+
+        if (count < 2)
+        {
+            return starts;
+        }
+
+        float[] radii = new float[count];
+        int[] order = new int[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            float x = engines[i].DiagramX;
+            float y = engines[i].DiagramY;
+            radii[i] = MathF.Sqrt(x * x + y * y);
+            order[i] = i;
+        }
+
+        Array.Sort(radii, order);
+
+        float tolerance = MathF.Max(dotRadius * Tuning.RingMergeTolerance, 0.01f);
+        int[] ring = new int[count];
+        int rings = 1;
+        float bandBase = radii[0];
+
+        for (int i = 1; i < count; i++)
+        {
+            if (radii[i] - bandBase > tolerance)
+            {
+                rings++;
+                bandBase = radii[i];
+            }
+
+            ring[order[i]] = rings - 1;
+        }
+
+        if (rings < 2)
+        {
+            return starts;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            starts[i] = Tuning.RingStaggerSpan * ring[i] / (float)(rings - 1);
+        }
+
+        return starts;
     }
 
     private static float SizeFactorOf(EngineSample engine)

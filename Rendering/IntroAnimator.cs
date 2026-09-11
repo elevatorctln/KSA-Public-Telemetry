@@ -1,38 +1,43 @@
 namespace KSATelemetryOverlay.Rendering;
 
-public readonly struct IntroPhases(float backdrop, float gauges, float arcSweep, float readouts)
+public readonly struct IntroPhases(
+    float backdrop, float gauges, float rim, float arcSweep, float readouts)
 {
     public readonly float Backdrop = backdrop;
     public readonly float Gauges = gauges;
+    public readonly float Rim = rim;
     public readonly float ArcSweep = arcSweep;
     public readonly float Readouts = readouts;
-    public static IntroPhases Complete => new(1f, 1f, 1f, 1f);
+    public static IntroPhases Complete => new(1f, 1f, 1f, 1f, 1f);
 
     public bool IsComplete =>
-        Backdrop >= 1f && Gauges >= 1f && ArcSweep >= 1f && Readouts >= 1f;
+        Backdrop >= 1f && Gauges >= 1f && Rim >= 1f && ArcSweep >= 1f && Readouts >= 1f;
+
 }
 
 public sealed class IntroAnimator
 {
     private readonly record struct Stage(double Start, double Duration, int Decay);
+    private static Stage Backdrop => new(Tuning.BackdropStart, Tuning.BackdropDuration, Tuning.BackdropDecay);
+    private static Stage Gauges   => new(Tuning.GaugesStart,   Tuning.GaugesDuration,   Tuning.GaugesDecay);
+    private static Stage Rim      => new(Tuning.RimStart,      Tuning.RimDuration,      Tuning.RimDecay);
+    private static Stage ArcSweep => new(Tuning.ArcSweepStart, Tuning.ArcSweepDuration, Tuning.ArcSweepDecay);
+    private static Stage Readouts => new(Tuning.ReadoutsStart, Tuning.ReadoutsDuration, Tuning.ReadoutsDecay);
 
-    private static readonly Stage Backdrop = new(0.00, 0.42, 3);
-    private static readonly Stage Gauges   = new(0.12, 0.60, 3);
-    private static readonly Stage ArcSweep = new(0.12, 1.5, 15);
-    private static readonly Stage Readouts = new(0.46, 0.56, 3);
+    private static double TimeScale => Math.Max(Tuning.IntroTimeScale, 0.01f);
 
-    private static readonly double TotalSeconds = new[]
-    {
-        Backdrop.Start + Backdrop.Duration,
-        Gauges.Start + Gauges.Duration,
-        ArcSweep.Start + ArcSweep.Duration,
-        Readouts.Start + Readouts.Duration,
-    }.Max();
+    private static double SequenceSeconds => Math.Max(
+        Math.Max(Backdrop.Start + Backdrop.Duration, Gauges.Start + Gauges.Duration),
+        Math.Max(Rim.Start + Rim.Duration,
+            Math.Max(ArcSweep.Start + ArcSweep.Duration, Readouts.Start + Readouts.Duration)))
+        * TimeScale;
 
-    private double _elapsed = TotalSeconds;
+    private static double TotalSeconds => SequenceSeconds + Math.Max(Tuning.GaugeStaggerMax, 0f);
+    private double _elapsed = double.PositiveInfinity;
+
     public bool IsPlaying => _elapsed < TotalSeconds;
     public void Restart() => _elapsed = 0.0;
-    public void Finish() => _elapsed = TotalSeconds;
+    public void Finish() => _elapsed = double.PositiveInfinity;
 
     public void Update(double dt)
     {
@@ -42,19 +47,31 @@ public sealed class IntroAnimator
         }
     }
 
-    public IntroPhases Phases => IsPlaying
-        ? new IntroPhases(
-            Progress(Backdrop), Progress(Gauges), Progress(ArcSweep), Progress(Readouts))
-        : IntroPhases.Complete;
-
-    private float Progress(Stage stage)
+    public IntroPhases Phases => PhasesDelayedBy(0.0);
+    public IntroPhases PhasesDelayedBy(double delaySeconds)
     {
-        if (stage.Duration <= 0.0)
+        double at = _elapsed - Math.Max(delaySeconds, 0.0);
+
+        if (at >= SequenceSeconds)
+        {
+            return IntroPhases.Complete;
+        }
+
+        return new IntroPhases(
+            Progress(Backdrop, at), Progress(Gauges, at), Progress(Rim, at),
+            Progress(ArcSweep, at), Progress(Readouts, at));
+    }
+
+    private float Progress(Stage stage, double elapsed)
+    {
+        double duration = stage.Duration * TimeScale;
+
+        if (duration <= 0.0)
         {
             return 1f;
         }
 
-        double t = (_elapsed - stage.Start) / stage.Duration;
+        double t = (elapsed - stage.Start * TimeScale) / duration;
 
         if (t <= 0.0)
         {

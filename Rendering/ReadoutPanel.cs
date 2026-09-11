@@ -62,19 +62,19 @@ public sealed class ReadoutPanel : IOverlayPanel
 
         Span<char> buffer = stackalloc char[64];
 
-        // The ring grows in on one stage; the type lands on a later one.
-        float ringPhase = context.Intro.Gauges;
-        float textPhase = context.Intro.Readouts;
-
-        float ringRadius = radius * (IntroRingStartScale + (1f - IntroRingStartScale) * ringPhase);
-        float ringOpacity = context.GaugeOpacity;
-        float textOpacity = context.ReadoutOpacity;
-
         for (int i = 0; i < Kinds.Length; i++)
         {
             float2 center = new(
                 origin.X + capsule * 0.5f + i * (capsule + gap),
                 origin.Y + size.Y * 0.5f);
+
+            IntroPhases intro = context.IntroFor(center.X, capsule);
+
+            float ringRadius =
+                radius * (IntroRingStartScale + (1f - IntroRingStartScale) * intro.Gauges);
+
+            float ringOpacity = context.Opacity * intro.Gauges;
+            float textOpacity = context.Opacity * intro.Readouts;
 
             ReadoutKind kind = Kinds[i];
             ReadOnlySpan<char> value = ValueFor(kind, _smoothed[i], buffer);
@@ -84,11 +84,14 @@ public sealed class ReadoutPanel : IOverlayPanel
                 Gfx.GaugePlate(context.DrawList, center, ringRadius, ringOpacity);
 
                 float fullScale = FullScaleFor(kind);
-                if (fullScale > 0f)
+                if (fullScale > 0f && intro.ArcSweep > 0f)
                 {
-                    // Sweeps up from zero to the live value as the ring appears.
-                    float level = Math.Clamp(_smoothed[i] / fullScale, 0f, 1f) * context.Intro.ArcSweep;
-                    DrawSweep(context.DrawList, center, ringRadius, level, ringOpacity, scale);
+                    DrawSweep(context.DrawList, center, ringRadius,
+                        intro.ArcSweep, OverlayStyle.ArcTrack, ringOpacity, scale);
+
+                    float level = Math.Clamp(_smoothed[i] / fullScale, 0f, 1f) * intro.ArcSweep;
+                    DrawSweep(context.DrawList, center, ringRadius,
+                        level, OverlayStyle.ArcFill, ringOpacity, scale);
                 }
 
                 Gfx.ReadoutBrackets(context.DrawList, center, ringRadius, ringOpacity, scale);
@@ -101,13 +104,14 @@ public sealed class ReadoutPanel : IOverlayPanel
                     LabelFor(kind), value, UnitFor(kind),
                     ColorFor(kind, _smoothed[i], context.Snapshot),
                     textOpacity, scale,
-                    IntroTextStartScale + (1f - IntroTextStartScale) * textPhase);
+                    IntroTextStartScale + (1f - IntroTextStartScale) * intro.Readouts);
             }
         }
     }
 
     private static void DrawSweep(
-        ImDrawListPtr drawList, float2 center, float radius, float level, float opacity, float scale)
+        ImDrawListPtr drawList, float2 center, float radius,
+        float level, uint color, float opacity, float scale)
     {
         if (level <= 0f)
         {
@@ -119,8 +123,7 @@ public sealed class ReadoutPanel : IOverlayPanel
         float end = start + halfSweep * 2f * level;
         float sweepRadius = radius + 3f * scale;
         float thickness = MathF.Max(1.5f, 2.5f * scale);
-        Gfx.Arc(drawList, center, sweepRadius, start, end,
-            OverlayStyle.ArcFill, thickness, opacity);
+        Gfx.Arc(drawList, center, sweepRadius, start, end, color, thickness, opacity);
     }
 
     private void UpdateSmoothing(in PanelContext context)

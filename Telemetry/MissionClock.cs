@@ -5,8 +5,9 @@ public sealed class MissionClock
 
     private double _liftoffUniverseSeconds;
     private bool _hasLiftoff;
-    private bool _sawPreLaunch;
+    private bool _sawGrounded;
     public double ElapsedSeconds { get; private set; }
+    public double LiftoffUniverseSeconds => _liftoffUniverseSeconds;
     public bool HasLiftoff => _hasLiftoff;
     public bool LiftoffThisFrame { get; private set; }
 
@@ -16,10 +17,24 @@ public sealed class MissionClock
     {
         _liftoffUniverseSeconds = 0.0;
         _hasLiftoff = false;
-        _sawPreLaunch = false;
+        _sawGrounded = false;
         ElapsedSeconds = 0.0;
         LiftoffThisFrame = false;
         EpochInferred = false;
+    }
+
+    /// <summary>
+    /// Adopts a liftoff time worked out on an earlier run and stored since. Takes
+    /// the clock straight to a running state, so the detection below never fires
+    /// and the count picks up exactly where it left off.
+    /// </summary>
+    public void SeedLiftoff(double liftoffUniverseSeconds)
+    {
+        _liftoffUniverseSeconds = liftoffUniverseSeconds;
+        _hasLiftoff = true;
+        _sawGrounded = true;
+        EpochInferred = false;
+        LiftoffThisFrame = false;
     }
 
     public void Update(
@@ -32,14 +47,20 @@ public sealed class MissionClock
     {
         LiftoffThisFrame = false;
 
-        if (!hasLaunched)
+        // Touching the ground is the only trustworthy "has not left yet" signal.
+        // HasLaunched is not one: KSA sets it on the pre-placed craft at universe
+        // load (Universe.AssignStartingCrew -> MarkLaunched), so those report
+        // launched while sitting on the pad, and LaunchGameTime is the vehicle's
+        // CONSTRUCTION time, not a liftoff. Between them they had the clock
+        // counting from spawn.
+        if (hasSurfaceContact)
         {
-            _sawPreLaunch = true;
+            _sawGrounded = true;
         }
 
         if (!_hasLiftoff)
         {
-            bool observedLiftoff = _sawPreLaunch
+            bool observedLiftoff = _sawGrounded
                 && !hasSurfaceContact
                 && isUnderPower
                 && verticalSpeed > MinAscentRate;
@@ -51,8 +72,11 @@ public sealed class MissionClock
                 EpochInferred = false;
                 LiftoffThisFrame = true;
             }
-            else if (hasLaunched)
+            else if (!_sawGrounded && hasLaunched)
             {
+                // Never seen on the ground, so we joined it already under way -
+                // a save loaded mid-flight, or a switch to something in orbit.
+                // Construction time is the only anchor there is; flag it as a guess.
                 _liftoffUniverseSeconds = launchGameSeconds;
                 _hasLiftoff = true;
                 EpochInferred = true;

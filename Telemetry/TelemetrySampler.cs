@@ -77,13 +77,44 @@ public static class TelemetrySampler
             snapshot.VerticalSpeed,
             snapshot.BurningEngineCount > 0);
 
+        if (mission.Clock.LiftoffThisFrame)
+        {
+            _missions.RecordLiftoff(mission.Key, mission.Clock.LiftoffUniverseSeconds);
+        }
+
         snapshot.MissionElapsedSeconds = mission.Clock.ElapsedSeconds;
         snapshot.HasLiftoff = mission.Clock.HasLiftoff;
         snapshot.ClockEpochInferred = mission.Clock.EpochInferred;
 
-        mission.Events.Update(snapshot, mission.Clock.LiftoffThisFrame, dt);
+        mission.Events.Update(
+            snapshot, mission.Clock.LiftoffThisFrame, dt, CountMissionVehicles(launchTime.Nanoseconds));
         SamplePlannedBurns(vehicle, mission, now);
         snapshot.Events = mission.Events;
+    }
+    
+    private static int CountMissionVehicles(Int128 launchKey)
+    {
+        CelestialSystem? system = Universe.CurrentSystem;
+
+        if (system is null)
+        {
+            return 0;
+        }
+
+        LookupCollection<Astronomical> all = system.All;
+        int count = 0;
+
+        for (int i = 0; i < all.Count; i++)
+        {
+            if (all.GetIndex(i) is Vehicle other
+                && !other.IsDisposed
+                && other.LaunchGameTime.Nanoseconds == launchKey)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static void SamplePlannedBurns(Vehicle vehicle, Mission mission, double nowUniverseSeconds)

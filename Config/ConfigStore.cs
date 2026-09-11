@@ -33,9 +33,11 @@ public static class ConfigStore
         [JsonPropertyName("settings")]
         public OverlayConfig? Settings { get; set; }
 
-        /// <summary>Only colours that differ from the shipped palette.</summary>
         [JsonPropertyName("colors")]
         public Dictionary<string, string>? Colors { get; set; }
+
+        [JsonPropertyName("tuning")]
+        public Dictionary<string, double>? Tuning { get; set; }
     }
     public static OverlayConfig Load()
     {
@@ -48,6 +50,7 @@ public static class ConfigStore
             if (!File.Exists(path))
             {
                 OverlayPalette.ResetAll();
+                Rendering.Tuning.ResetAll();
                 Track(config);
                 Console.WriteLine(LogPrefix + $"no config at {path}; using defaults.");
                 return config;
@@ -62,12 +65,14 @@ public static class ConfigStore
             }
 
             OverlayPalette.ApplyOverrides(file?.Colors);
+            Rendering.Tuning.ApplyOverrides(file?.Tuning);
             Console.WriteLine(LogPrefix + $"loaded config from {path}.");
         }
         catch (Exception ex)
         {
             config = new OverlayConfig();
             OverlayPalette.ResetAll();
+            Rendering.Tuning.ResetAll();
             Console.WriteLine(LogPrefix + $"config load failed, using defaults: {ex.Message}");
         }
 
@@ -117,6 +122,7 @@ public static class ConfigStore
             {
                 Settings = _tracked,
                 Colors = OverlayPalette.CaptureOverrides(),
+                Tuning = Rendering.Tuning.CaptureOverrides(),
             };
 
             string path = FilePath;
@@ -147,6 +153,8 @@ public static class ConfigStore
 
         config.Windows ??= [];
         config.Windows.RemoveAll(static w => w is null || string.IsNullOrEmpty(w.Id));
+
+        config.MissionEpochs ??= [];
     }
 
     private static ReadoutKind[] SanitiseSlots(ReadoutKind[]? slots, ReadoutKind[] fallback)

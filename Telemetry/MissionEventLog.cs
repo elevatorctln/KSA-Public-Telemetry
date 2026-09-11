@@ -16,6 +16,7 @@ public sealed class MissionEventLog
 
     private int _previousBurning;
     private int _previousPartCount;
+    private int _previousVehicleCount = -1;
 
     private bool _liftoffFired;
     private bool _maxQFired;
@@ -43,6 +44,7 @@ public sealed class MissionEventLog
         _baselineVehicle = string.Empty;
         _previousBurning = 0;
         _previousPartCount = 0;
+        _previousVehicleCount = -1;
 
         _liftoffFired = false;
         _maxQFired = false;
@@ -58,7 +60,8 @@ public sealed class MissionEventLog
         Generation++;
     }
 
-    public void Update(TelemetrySnapshot snapshot, bool liftoffThisFrame, double dt)
+    public void Update(
+        TelemetrySnapshot snapshot, bool liftoffThisFrame, double dt, int missionVehicleCount)
     {
         _firedThisFrame.Clear();
 
@@ -67,17 +70,15 @@ public sealed class MissionEventLog
         double now = snapshot.MissionElapsedSeconds;
         bool flying = snapshot.HasLiftoff;
 
+        bool gainedVehicle = _previousVehicleCount >= 0 && missionVehicleCount > _previousVehicleCount;
+        _previousVehicleCount = missionVehicleCount;
+
+        DetectStaging(gainedVehicle, flying, now);
+
         bool sameVehicle = string.Equals(_baselineVehicle, snapshot.VehicleName, StringComparison.Ordinal);
 
         if (!sameVehicle)
         {
-            bool firstSight = _baselineVehicle.Length == 0;
-
-            if (!firstSight && flying && parts < _previousPartCount)
-            {
-                DetectStaging(parts, flying, now);
-            }
-
             _baselineVehicle = snapshot.VehicleName;
             _previousBurning = burning;
             _previousPartCount = parts;
@@ -95,7 +96,7 @@ public sealed class MissionEventLog
         }
 
         DetectMaxQ(snapshot, flying, now);
-        DetectStaging(parts, flying, now);
+        DetectStaging(parts < _previousPartCount, flying, now);
         DetectCutoff(burning, flying, now, endingRunLength);
 
         _previousBurning = burning;
@@ -125,9 +126,9 @@ public sealed class MissionEventLog
         }
     }
 
-    private void DetectStaging(int parts, bool flying, double now)
+    private void DetectStaging(bool separated, bool flying, double now)
     {
-        if (!flying || parts >= _previousPartCount)
+        if (!flying || !separated)
         {
             return;
         }

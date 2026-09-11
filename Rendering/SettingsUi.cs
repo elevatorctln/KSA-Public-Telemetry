@@ -151,6 +151,13 @@ public static class SettingsUi
             changed |= DrawColorEditors();
         }
 
+        ImGui.SeparatorText("Developer"u8);
+        bool tuning = TuningUi.IsOpen;
+        if (ImGui.Checkbox("Visual tuning window"u8, ref tuning))
+        {
+            TuningUi.SetOpen(tuning);
+        }
+
         ImGui.SeparatorText("Config"u8);
         if (ImGui.SmallButton("Save now"u8))
         {

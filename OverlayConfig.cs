@@ -33,6 +33,12 @@ public sealed class OverlayConfig
 
     // standalone windows
     public List<OverlayWindowState> Windows = [];
+
+    /// <summary>
+    /// Detected liftoff times keyed by mission, so T+ survives a restart. Written
+    /// as strings because the key is an Int128 nanosecond stamp.
+    /// </summary>
+    public Dictionary<string, double> MissionEpochs = [];
     public int Revision;
     public void MarkStructuralChange() => Revision++;
     public const int MaxSlotsPerSide = 4;

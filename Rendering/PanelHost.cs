@@ -14,8 +14,6 @@ public sealed class PanelSlot(IOverlayPanel panel, PanelAnchor anchor)
 
 public sealed class PanelHost
 {
-    private const float EdgeMargin = 18f;
-    private const float PanelGap = 8f;
     private readonly List<PanelSlot> _slots = [];
     private readonly Dictionary<PanelAnchor, float> _stackOffsets = [];
     private readonly Dictionary<PanelAnchor, float> _rowOffsets = [];
@@ -30,7 +28,7 @@ public sealed class PanelHost
     public float MeasureGroupWidth(in PanelContext context, PanelAnchor anchor)
     {
         float scale = context.Scale;
-        float gap = PanelGap * scale;
+        float gap = Tuning.PanelGap * scale;
         float total = 0f;
 
         for (int i = 0; i < _slots.Count; i++)
@@ -68,8 +66,9 @@ public sealed class PanelHost
         _rowOffsets.Clear();
 
         float scale = context.Scale;
-        float margin = EdgeMargin * scale;
-        float gap = PanelGap * scale;
+        float marginX = Tuning.PanelEdgeMarginX * scale;
+        float marginY = Tuning.PanelEdgeMarginY * scale;
+        float gap = Tuning.PanelGap * scale;
 
         for (int i = 0; i < _slots.Count; i++)
         {
@@ -91,7 +90,7 @@ public sealed class PanelHost
             _rowOffsets.TryGetValue(slot.Anchor, out float row);
 
             float2 origin = ResolveOrigin(
-                slot, size, viewportPos, viewportSize, margin, scale, stacked, row);
+                slot, size, viewportPos, viewportSize, marginX, marginY, scale, stacked, row);
 
             panel.Draw(in context, origin, size);
 
@@ -111,17 +110,18 @@ public sealed class PanelHost
         float2 size,
         float2 viewportPos,
         float2 viewportSize,
-        float margin,
+        float marginX,
+        float marginY,
         float scale,
         float stacked,
         float row)
     {
-        float left = viewportPos.X + margin + row;
+        float left = viewportPos.X + marginX + row;
         float centerX = viewportPos.X + (viewportSize.X - size.X) * 0.5f;
-        float right = viewportPos.X + viewportSize.X - size.X - margin - row;
+        float right = viewportPos.X + viewportSize.X - size.X - marginX - row;
 
-        float top = viewportPos.Y + margin;
-        float bottom = viewportPos.Y + viewportSize.Y - size.Y - margin;
+        float top = viewportPos.Y + marginY;
+        float bottom = viewportPos.Y + viewportSize.Y - size.Y - marginY;
 
         float2 offset = slot.Offset * scale;
 

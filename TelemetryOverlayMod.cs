@@ -42,8 +42,10 @@ public class TelemetryOverlayMod
         try
         {
             _config = ConfigStore.Load();
+            TelemetrySampler.Missions.ApplyEpochs(_config.MissionEpochs);
             _renderer = new OverlayRenderer(_config);
             SettingsUi.Bind(_config, _windows);
+            TuningUi.Bind(_renderer);
 
             Console.WriteLine(
                 LogPrefix + $"ready - {_config.ToggleKey} toggles the overlay, " +
@@ -100,9 +102,16 @@ public class TelemetryOverlayMod
             _renderer.Draw(_snapshot, dt);
 
             SettingsUi.DrawFallbackWindow();
+            TuningUi.Draw();
 
             if (_windows.CaptureInto(_config))
             {
+                ConfigStore.MarkDirty();
+            }
+
+            if (TelemetrySampler.Missions.EpochsChanged)
+            {
+                _config.MissionEpochs = TelemetrySampler.Missions.CaptureEpochs();
                 ConfigStore.MarkDirty();
             }
 
