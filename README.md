@@ -1,23 +1,25 @@
-KSA Public Telemetry
+## KSA Broadcast Telemetry Overlay
 
 ---
 
 This is a work-in-progress mod for Kitten Space Agency that creates a SpaceX-style launch broadcast telemetry overlay in-game. The overlay is populated with live data from the active vehicle and the mod includes an engine diagram generated automatically using the actual position of the engines on your stage relative to each other.
 
-Toggle the overlay on and off using the numpad period key (I know). This can be configured in the config file.
+I am completely open to contributions and suggestions and certainly issue reports. I'll get to that stuff as quick as I can, but I can't promise being super fast.
 
 ## Features
 
-- A broadcast-style bottom bar: speed and altitude on the left, T+ clock and mission timeline in the center, g-force and the engine diagram on the right.
+- A broadcast-style bottom bar: speed and altitude on the left, T+ clock and mission timeline in the center, g-force and the engine diagram on the right. Styled to look like the SpaceX webcast overlay slick animations and all.
 - An engine diagram built from the real nozzle positions on your active stage, with a propellant arc gauge around it.
-- Event notifications for certain in-flight events. I'm not sure if this will stick around since it's difficult to make it reliable, open to feedback.
+- Event notifications for certain in-flight events. Be warned that this is not totally reliable, maybe I'll make it a toggle or something.
 - A mission timeline bar showing detected events behind the marker and any planned maneuvers ahead of it. Same deal as the event notifications.
 - Freeze-on-signal-loss: if the vehicle stops being controllable, the overlay freezes at the last recieved values.
-- Optionally hides the flight HUD while the overlay is up, and restores it afterwards.
-- Every element is also available as its own movable, closable window.
+- Optionally and by default hides the flight UI while the overlay is up, and restores it afterwards.
+- Every element is also available as its own movable imgui window that behaves like any other.
 - Fairly in-depth configuration avalible in the settlings menu.
 
 ## Installation
+
+Download from Releases or from [https://spacedock.info/mod/4552/Webcast%20Telemetry%20Overlay](Spacedock).
 
 Extract into `Documents/My Games/Kitten Space Agency/mods/` and add to `manifest.toml`:
 
@@ -38,6 +40,10 @@ This feels important for me to be clear about: KSA is in pre-alpha and this mod 
 
 If [ModMenu](https://github.com/MrJeranimo/ModMenu) is installed, settings appear under **Mods > Telemetry Overlay**. ModMenu is optional. Without it, press **numpad slash** for the same settings in a standalone window.
 
-**Numpad period** toggles the overlay.
+Toggle the overlay on and off using the **numpad period** key (I know). This can be configured in the config file.
 
 Settings are saved to `Documents/My Games/Kitten Space Agency/KSATelemetryOverlay/config.json`, which is safe to hand-edit.
+
+## Me
+
+I'm not sure if this is weird to do in a readme, but I figured it makes sense to put here where you can find me elsewhere! I have a [https://linktr.ee/caitlynlh](linktree) which seems like the most convienient way.
