@@ -46,4 +46,4 @@ Settings are saved to `Documents/My Games/Kitten Space Agency/KSATelemetryOverla
 
 ## Me
 
-I'm not sure if this is weird to do in a readme, but I figured it makes sense to put here where you can find me elsewhere! I have a [https://linktr.ee/caitlynlh](linktree) which seems like the most convienient way.
+I'm not sure if this is weird to do in a readme, but I figured it makes sense to put here where you can find me elsewhere! I have a [linktree](https://linktr.ee/caitlynlh) which seems like the most convienient way.
