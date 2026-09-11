@@ -29,15 +29,6 @@ public struct EngineSample
     public readonly bool IsBurning => Status is EngineStatus.Throttled or EngineStatus.Nominal;
 }
 
-public struct PropellantSample
-{
-    public string Name;
-    public float Mass;
-    public float Fraction;
-    public float ColorR, ColorG, ColorB;
-    public bool HasColor;
-}
-
 public sealed class TelemetrySnapshot
 {
     public bool HasVehicle;
@@ -65,7 +56,6 @@ public sealed class TelemetrySnapshot
     public float DynamicPressure;
     public float MaxDynamicPressure;
     public readonly List<EngineSample> Engines = new(16);
-    public readonly List<PropellantSample> Propellants = new(8);
     public float PropellantFraction;
     public float PropellantCapacity;
     public int BurningEngineCount;
@@ -91,7 +81,6 @@ public sealed class TelemetrySnapshot
         PropellantFraction = PropellantCapacity = 0f;
         AmbientPressure = AmbientDensity = DynamicPressure = 0f;
         Engines.Clear();
-        Propellants.Clear();
         BurningEngineCount = TotalEngineCount = 0;
         PartCount = 0;
         HasLaunched = false;

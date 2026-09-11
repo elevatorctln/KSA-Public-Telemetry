@@ -13,12 +13,11 @@ public sealed class OverlayRenderer
     private const float BoxCornerRadius = 50f;
     private const float BoxPadding = 30f;
     private const float MinBoxFlatWidth = 140f;
-
     private readonly OverlayConfig _config;
     private PanelHost _host = new();
-
     private readonly FlightUiController _flightUi = new();
-
+    private readonly IntroAnimator _intro = new();
+    private bool _wasVisible;
     private readonly EngineClusterPanel _enginePod = new();
     private readonly MissionClockPanel _missionClock = new();
     private readonly TimelinePanel _timeline = new();
@@ -75,6 +74,18 @@ public sealed class OverlayRenderer
 
         _flightUi.SetHidden(overlayVisible && _config.ReplaceFlightUi);
 
+        if (overlayVisible && !_wasVisible)
+        {
+            _intro.Restart();
+        }
+
+        _wasVisible = overlayVisible;
+
+        if (overlayVisible)
+        {
+            _intro.Update(dt);
+        }
+
         if (!_config.Enabled)
         {
             return;
@@ -103,7 +114,7 @@ public sealed class OverlayRenderer
         ImGuiViewportPtr viewport = ImGui.GetMainViewport();
         ImDrawListPtr drawList = ImGui.GetForegroundDrawList();
 
-        PanelContext context = new(drawList, snapshot, _config, dt);
+        PanelContext context = new(drawList, snapshot, _config, dt, _intro.Phases);
 
         if (_config.ShowBackdrop)
         {
@@ -121,7 +132,7 @@ public sealed class OverlayRenderer
     private void DrawBackdrop(in PanelContext context, ImDrawListPtr drawList, ImGuiViewportPtr viewport)
     {
         float scale = context.Scale;
-        Gfx.BottomFade(drawList, viewport.Pos, viewport.Size, FadeHeight * scale, context.Opacity);
+        Gfx.BottomFade(drawList, viewport.Pos, viewport.Size, FadeHeight * scale, context.BackdropOpacity);
 
         DrawShelfBox(in context, drawList, viewport, PanelAnchor.BottomLeft, onLeft: true);
         DrawShelfBox(in context, drawList, viewport, PanelAnchor.BottomRight, onLeft: false);
@@ -148,7 +159,7 @@ public sealed class OverlayRenderer
             DiagonalSlope,
             BoxCornerRadius * context.Scale,
             onLeft,
-            context.Opacity);
+            context.BackdropOpacity);
     }
 
     private float FlatWidthFor(in PanelContext context, PanelAnchor anchor)
@@ -186,7 +197,7 @@ public sealed class OverlayRenderer
         Gfx.Panel(drawList, min, max, _config.Opacity);
         Gfx.TextCenteredFont(
             drawList, OverlayFonts.Body, size, centerX, y,
-            OverlayStyle.EngineStarved, text, _config.Opacity);
+            OverlayStyle.Critical, text, _config.Opacity);
     }
 
     private void DrawIdleStatus()
@@ -202,7 +213,6 @@ public sealed class OverlayRenderer
         float padX = 12f * _config.Scale;
         float padY = 7f * _config.Scale;
 
-        // Sit in the bottom band, where the real overlay lives.
         float2 min = new(
             viewport.Pos.X + SideMargin * _config.Scale,
             viewport.Pos.Y + viewport.Size.Y - extent.Y - padY * 2f - SideMargin * _config.Scale);

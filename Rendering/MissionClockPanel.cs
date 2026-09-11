@@ -37,7 +37,8 @@ public sealed class MissionClockPanel : IOverlayPanel
     public void Draw(in PanelContext context, float2 origin, float2 size)
     {
         ImDrawListPtr drawList = context.DrawList;
-        float opacity = context.Opacity;
+        // way more efficient
+        float opacity = context.BackdropOpacity;
         float scale = context.Scale;
 
         float numericSize = OverlayFonts.ClockSize * scale;
@@ -58,7 +59,7 @@ public sealed class MissionClockPanel : IOverlayPanel
 
         float clockTop = origin.Y + Padding * scale;
 
-        float prefixY = clockTop + (timeSize.Y - prefixSize.Y) * 0.72f;
+        float prefixY = clockTop + (timeSize.Y - prefixSize.Y) * 0.5f;
 
         uint timeColor = context.Snapshot.IsFrozen
             ? OverlayStyle.TextMuted
@@ -84,7 +85,7 @@ public sealed class MissionClockPanel : IOverlayPanel
     public void Reset()
     {
     }
-    
+
     private static ReadOnlySpan<char> ResolveMissionName(in PanelContext context)
     {
         string? configured = context.Config.MissionName;

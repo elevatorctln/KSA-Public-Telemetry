@@ -17,15 +17,19 @@ public readonly struct PanelContext(
     ImDrawListPtr drawList,
     TelemetrySnapshot snapshot,
     OverlayConfig config,
-    double deltaTime)
+    double deltaTime,
+    IntroPhases intro)
 {
     public readonly ImDrawListPtr DrawList = drawList;
     public readonly TelemetrySnapshot Snapshot = snapshot;
     public readonly OverlayConfig Config = config;
     public readonly double DeltaTime = deltaTime;
-
+    public readonly IntroPhases Intro = intro;
     public float Scale => Config.Scale;
     public float Opacity => Config.Opacity;
+    public float BackdropOpacity => Opacity * Intro.Backdrop;
+    public float GaugeOpacity => Opacity * Intro.Gauges;
+    public float ReadoutOpacity => Opacity * Intro.Readouts;
 }
 
 public interface IOverlayPanel

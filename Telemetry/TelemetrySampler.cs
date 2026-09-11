@@ -19,7 +19,6 @@ public static class TelemetrySampler
         _lastVehicleId = string.Empty;
         _signal.Reset();
         _missions.Clear();
-        _substanceTotals.Clear();
         _overlapGroup.Clear();
         _burnTimes.Clear();
     }
@@ -463,6 +462,8 @@ public static class TelemetrySampler
     }
 
     private static readonly List<int> _overlapGroup = new(16);
+
+    /// Sums propellant mass and capacity across every tank on the vehicle, no need to differentiate.
     private static void SamplePropellants(Vehicle vehicle, TelemetrySnapshot snapshot)
     {
         PartTree parts = vehicle.Parts;
@@ -474,13 +475,13 @@ public static class TelemetrySampler
         ReadOnlySpan<MoleState> moleStates = parts.Moles.States;
         Span<Tank> tanks = parts.Tanks.Modules;
 
-        Dictionary<string, SubstanceTotal> totals = _substanceTotals;
-        totals.Clear();
+        float aggregateMass = 0f;
+        float aggregateCapacity = 0f;
 
         for (int t = 0; t < tanks.Length; t++)
         {
-            Tank tank = tanks[t];
-            List<Mole> moles = tank.Moles;
+            List<Mole> moles = tanks[t].Moles;
+
             for (int m = 0; m < moles.Count; m++)
             {
                 Mole mole = moles[m];
@@ -490,47 +491,17 @@ public static class TelemetrySampler
                     continue;
                 }
 
-                SubstancePhase phase = mole.SubstancePhase;
-                string name = phase.Name;
+                float capacity = mole.GetStoredMass(mole.ContainerVolume);
 
-                totals.TryGetValue(name, out SubstanceTotal entry);
-                entry.Mass += moleStates[idx].Mass;
-                entry.Capacity += mole.GetStoredMass(mole.ContainerVolume);
-                entry.Color ??= phase.Substance?.UiColor;
-                totals[name] = entry;
+                if (capacity <= 0f)
+                {
+                    continue;
+                }
+
+                aggregateMass += moleStates[idx].Mass;
+                aggregateCapacity += capacity;
             }
         }
-
-        float aggregateMass = 0f;
-        float aggregateCapacity = 0f;
-
-        foreach ((string name, SubstanceTotal entry) in totals)
-        {
-            if (entry.Capacity <= 0f)
-            {
-                continue;
-            }
-
-            aggregateMass += entry.Mass;
-            aggregateCapacity += entry.Capacity;
-
-            PropellantSample sample = default;
-            sample.Name = name;
-            sample.Mass = entry.Mass;
-            sample.Fraction = Math.Clamp(entry.Mass / entry.Capacity, 0f, 1f);
-
-            if (entry.Color is { } color)
-            {
-                sample.HasColor = true;
-                sample.ColorR = color.X;
-                sample.ColorG = color.Y;
-                sample.ColorB = color.Z;
-            }
-
-            snapshot.Propellants.Add(sample);
-        }
-
-        snapshot.Propellants.Sort(static (a, b) => b.Mass.CompareTo(a.Mass));
 
         snapshot.PropellantCapacity = aggregateCapacity;
         snapshot.PropellantFraction = aggregateCapacity > 0f
@@ -538,13 +509,4 @@ public static class TelemetrySampler
             : 0f;
     }
 
-    private struct SubstanceTotal
-    {
-        public float Mass;
-        public float Capacity;
-        public float4? Color;
-    }
-
-    private static readonly Dictionary<string, SubstanceTotal> _substanceTotals =
-        new(8, StringComparer.Ordinal);
 }

@@ -5,7 +5,7 @@ namespace KSATelemetryOverlay;
 public sealed class OverlayConfig
 {
     // visibility
-    public bool Enabled = true;
+    public bool Enabled = false;
     public bool ShowTelemetryBar = true;
     public bool ShowEngineDiagram = true;
     public bool ShowPropellants = true;
@@ -17,8 +17,8 @@ public sealed class OverlayConfig
     public bool HideOnRails = false;
 
     // behaviour
-    public ImGuiKey ToggleKey = ImGuiKey.F8;
-    public ImGuiKey SettingsKey = ImGuiKey.F9;
+    public ImGuiKey ToggleKey = ImGuiKey.KeypadDecimal;
+    public ImGuiKey SettingsKey = ImGuiKey.KeypadDivide;
     public bool ReplaceFlightUi = true;
     public string? MissionName = null;
 

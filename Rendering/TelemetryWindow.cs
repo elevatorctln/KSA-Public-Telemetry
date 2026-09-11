@@ -59,7 +59,9 @@ public sealed class TelemetryWindow : ImGuiWindow, IStaticWindow
             return;
         }
 
-        PanelContext context = new(ImGui.GetWindowDrawList(), snapshot, config, dt);
+        // skip animations for the spawnable windows
+        PanelContext context = new(
+            ImGui.GetWindowDrawList(), snapshot, config, dt, IntroPhases.Complete);
 
         float2 size = _panel.Measure(in context) * config.Scale;
         if (size.X <= 0f || size.Y <= 0f)

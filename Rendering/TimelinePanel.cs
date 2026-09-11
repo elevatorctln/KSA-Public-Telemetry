@@ -38,7 +38,7 @@ public sealed class TimelinePanel : IOverlayPanel
     public void Draw(in PanelContext context, float2 origin, float2 size)
     {
         ImDrawListPtr drawList = context.DrawList;
-        float opacity = context.Opacity;
+        float opacity = context.BackdropOpacity;
         float scale = context.Scale;
 
         double now = context.Snapshot.MissionElapsedSeconds;

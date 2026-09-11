@@ -108,10 +108,42 @@ public static class Gfx
 
         uint bottomColor = Tone(1f);
 
+        float flatRun = MathF.Floor(flatWidth);
+
+        {
+            float snappedTop = MathF.Floor(top);
+            float coverage = 1f - (top - snappedTop);
+
+            float fa = edgeX;
+            float fb = edgeX + direction * flatRun;
+            float fx0 = MathF.Min(fa, fb);
+            float fx1 = MathF.Max(fa, fb);
+
+            if (coverage > 0.01f && coverage < 0.99f)
+            {
+                float2 edgeMin = new(fx0, snappedTop);
+                float2 edgeMax = new(fx1, snappedTop + 1f);
+
+                drawList.AddRectFilled(in edgeMin, in edgeMax,
+                    OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity * coverage), 0f);
+            }
+
+            float fillTop = snappedTop + 1f;
+            if (fillTop < bottom)
+            {
+                uint topColor = Tone((fillTop - top) / height);
+
+                float2 min = new(fx0, fillTop);
+                float2 max = new(fx1, bottom);
+
+                drawList.AddRectFilledMultiColor(in min, in max, topColor, topColor, bottomColor, bottomColor);
+            }
+        }
+
         float totalRun = flatWidth + height / slope + radius * 0.5f;
         float step = MathF.Max(ShelfColumnWidth, 1f);
 
-        for (float offset = 0f; offset < totalRun; offset += step)
+        for (float offset = flatRun; offset < totalRun; offset += step)
         {
             float span = MathF.Min(step, totalRun - offset);
             float centre = offset + span * 0.5f;
@@ -214,16 +246,9 @@ public static class Gfx
     }
     private const float ValueWidthFraction = 1.55f;
     private const float MinValueShrink = 0.62f;
-    public static void ReadoutCapsule(
-        ImDrawListPtr drawList,
-        float2 center,
-        float radius,
-        ReadOnlySpan<char> label,
-        ReadOnlySpan<char> value,
-        ReadOnlySpan<char> unit,
-        uint valueColor,
-        float opacity,
-        float scale)
+
+    public static void ReadoutBrackets(
+        ImDrawListPtr drawList, float2 center, float radius, float opacity, float scale)
     {
         const float arcHalfSweep = MathF.PI * 0.28f;
         float thickness = MathF.Max(1f, 1.5f * scale);
@@ -235,7 +260,20 @@ public static class Gfx
         Arc(drawList, center, radius,
             MathF.PI * 0.5f - arcHalfSweep, MathF.PI * 0.5f + arcHalfSweep,
             OverlayStyle.Hairline, thickness, opacity);
+    }
 
+    public static void ReadoutText(
+        ImDrawListPtr drawList,
+        float2 center,
+        float radius,
+        ReadOnlySpan<char> label,
+        ReadOnlySpan<char> value,
+        ReadOnlySpan<char> unit,
+        uint valueColor,
+        float opacity,
+        float scale,
+        float textScale = 1f)
+    {
         float labelSize = OverlayFonts.LabelSize * scale;
         float valueSize = OverlayFonts.NumericSize * scale;
 
@@ -245,9 +283,12 @@ public static class Gfx
         if (valueExtent.X > maxValueWidth && valueExtent.X > 0f)
         {
             valueSize *= MathF.Max(maxValueWidth / valueExtent.X, MinValueShrink);
-            valueExtent = MeasureWithFont(OverlayFonts.Numeric, valueSize, value);
         }
 
+        labelSize *= textScale;
+        valueSize *= textScale;
+
+        valueExtent = MeasureWithFont(OverlayFonts.Numeric, valueSize, value);
         float2 labelExtent = MeasureWithFont(OverlayFonts.Label, labelSize, label);
 
         float unitSize = labelSize * 0.85f;
@@ -274,6 +315,7 @@ public static class Gfx
                 OverlayStyle.TextDim, unit, opacity);
         }
     }
+
     private static void Text(ImDrawListPtr drawList, float2 pos, uint color, ReadOnlySpan<char> text, float opacity)
     {
         float2 shadowPos = pos + new float2(1f, 1f);

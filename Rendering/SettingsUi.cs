@@ -17,6 +17,7 @@ public static class SettingsUi
         ("Highlight / arc fill", nameof(OverlayStyle.ArcFill)),
         ("Arc track",            nameof(OverlayStyle.ArcTrack)),
         ("Caution",              nameof(OverlayStyle.Caution)),
+        ("Critical",             nameof(OverlayStyle.Critical)),
         ("Primary text",         nameof(OverlayStyle.TextPrimary)),
         ("Secondary text",       nameof(OverlayStyle.TextMuted)),
         ("Dim text",             nameof(OverlayStyle.TextDim)),
@@ -94,7 +95,7 @@ public static class SettingsUi
         changed |= ImGui.Checkbox("Propellant arc"u8, ref config.ShowPropellants);
         changed |= ImGui.Checkbox("Mission clock"u8, ref config.ShowMissionClock);
         changed |= ImGui.Checkbox("Timeline"u8, ref config.ShowTimeline);
-        changed |= ImGui.Checkbox("Event callouts"u8, ref config.ShowNotifications);
+        changed |= ImGui.Checkbox("Event Notifications"u8, ref config.ShowNotifications);
 
         ImGui.SeparatorText("Readout slots"u8);
         changed |= DrawSlotEditor("Left"u8, "left", ref config.LeftSlots, config);

@@ -20,7 +20,8 @@ public sealed class ReadoutPanel : IOverlayPanel
 {
     private const float CapsuleSize = 150f;
     private const float CapsuleGap = 3f;
-
+    private const float IntroRingStartScale = 0.72f;
+    private const float IntroTextStartScale = 0.82f;
     private readonly float[] _smoothed;
     private bool _initialised;
 
@@ -61,6 +62,14 @@ public sealed class ReadoutPanel : IOverlayPanel
 
         Span<char> buffer = stackalloc char[64];
 
+        // The ring grows in on one stage; the type lands on a later one.
+        float ringPhase = context.Intro.Gauges;
+        float textPhase = context.Intro.Readouts;
+
+        float ringRadius = radius * (IntroRingStartScale + (1f - IntroRingStartScale) * ringPhase);
+        float ringOpacity = context.GaugeOpacity;
+        float textOpacity = context.ReadoutOpacity;
+
         for (int i = 0; i < Kinds.Length; i++)
         {
             float2 center = new(
@@ -69,19 +78,31 @@ public sealed class ReadoutPanel : IOverlayPanel
 
             ReadoutKind kind = Kinds[i];
             ReadOnlySpan<char> value = ValueFor(kind, _smoothed[i], buffer);
-            Gfx.GaugePlate(context.DrawList, center, radius, context.Opacity);
-            float fullScale = FullScaleFor(kind);
-            if (fullScale > 0f)
+
+            if (ringOpacity > 0f)
             {
-                float level = Math.Clamp(_smoothed[i] / fullScale, 0f, 1f);
-                DrawSweep(context.DrawList, center, radius, level, context.Opacity, scale);
+                Gfx.GaugePlate(context.DrawList, center, ringRadius, ringOpacity);
+
+                float fullScale = FullScaleFor(kind);
+                if (fullScale > 0f)
+                {
+                    // Sweeps up from zero to the live value as the ring appears.
+                    float level = Math.Clamp(_smoothed[i] / fullScale, 0f, 1f) * context.Intro.ArcSweep;
+                    DrawSweep(context.DrawList, center, ringRadius, level, ringOpacity, scale);
+                }
+
+                Gfx.ReadoutBrackets(context.DrawList, center, ringRadius, ringOpacity, scale);
             }
 
-            Gfx.ReadoutCapsule(
-                context.DrawList, center, radius,
-                LabelFor(kind), value, UnitFor(kind),
-                ColorFor(kind, _smoothed[i], context.Snapshot),
-                context.Opacity, scale);
+            if (textOpacity > 0f)
+            {
+                Gfx.ReadoutText(
+                    context.DrawList, center, radius,
+                    LabelFor(kind), value, UnitFor(kind),
+                    ColorFor(kind, _smoothed[i], context.Snapshot),
+                    textOpacity, scale,
+                    IntroTextStartScale + (1f - IntroTextStartScale) * textPhase);
+            }
         }
     }
 
@@ -177,7 +198,7 @@ public sealed class ReadoutPanel : IOverlayPanel
 
     private static uint ColorFor(ReadoutKind kind, float value, TelemetrySnapshot s) => kind switch
     {
-        ReadoutKind.GForce when value >= 4f => OverlayStyle.Caution,
+        ReadoutKind.GForce when value >= 4f => OverlayStyle.TextPrimary,
         ReadoutKind.DynamicPressure when s.MaxDynamicPressure > 0f
             && s.DynamicPressure < s.MaxDynamicPressure * 0.98f => OverlayStyle.TextDim,
 

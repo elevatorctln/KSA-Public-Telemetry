@@ -13,8 +13,63 @@ public sealed class EngineClusterPanel : IOverlayPanel
     private const float NeighbourFillFraction = 0.9f;
     private const float SingleEngineRadius = 0.42f;
     private const float ClusterFillFraction = 0.9f;
+    private const float StateFadeSeconds = 0.18f;
+    private const double StateJitterSeconds = 0.10;
+    private const float IntroDotStartScale = 0.55f;
     private float _propellant;
     private bool _initialised;
+    private struct DotState
+    {
+        public bool Active;
+        public EngineStatus Shown;
+        public EngineStatus Pending;
+        public double Delay;
+        public uint FromColor;
+        public float Fade;
+    }
+
+    private DotState[] _dots = [];
+    private readonly Random _jitter = new();
+    private const float SwapOutSeconds = 0.12f;
+    private const float SwapInSeconds = 0.18f;
+    private enum SwapPhase : byte { Idle, Out, In }
+    private SwapPhase _swap = SwapPhase.Idle;
+    private float _swapT = 1f;
+
+    private sealed class DotSet
+    {
+        public readonly List<float2> Offsets = [];
+        public readonly List<float> SizeFactors = [];
+        public readonly List<uint> Colors = [];
+        public readonly List<bool> Burning = [];
+
+        public float Normalised;
+        public float MaxSizeFactor;
+
+        public int Count => Offsets.Count;
+
+        public void Clear()
+        {
+            Offsets.Clear();
+            SizeFactors.Clear();
+            Colors.Clear();
+            Burning.Clear();
+        }
+
+        public void CopyFrom(DotSet other)
+        {
+            Clear();
+            Offsets.AddRange(other.Offsets);
+            SizeFactors.AddRange(other.SizeFactors);
+            Colors.AddRange(other.Colors);
+            Burning.AddRange(other.Burning);
+            Normalised = other.Normalised;
+            MaxSizeFactor = other.MaxSizeFactor;
+        }
+    }
+
+    private readonly DotSet _live = new();
+    private readonly DotSet _outgoing = new();
 
     public string Id => "engine_cluster";
 
@@ -29,16 +84,23 @@ public sealed class EngineClusterPanel : IOverlayPanel
     {
         _initialised = false;
         _propellant = 0f;
+        _dots = [];
+        _live.Clear();
+        _outgoing.Clear();
+        _swap = SwapPhase.Idle;
+        _swapT = 1f;
     }
 
     public void Draw(in PanelContext context, float2 origin, float2 size)
     {
         ImDrawListPtr drawList = context.DrawList;
         TelemetrySnapshot snapshot = context.Snapshot;
-        float opacity = context.Opacity;
         float scale = context.Scale;
+        float gaugeOpacity = context.GaugeOpacity;
+        float dotOpacity = context.ReadoutOpacity;
 
         UpdateSmoothing(snapshot, context.DeltaTime, context.Config);
+        UpdateCluster(snapshot, context.DeltaTime);
 
         float2 center = origin + size * 0.5f;
         float outerRadius = MathF.Min(size.X, size.Y) * 0.5f;
@@ -50,13 +112,15 @@ public sealed class EngineClusterPanel : IOverlayPanel
             ? arcRadius - arcThickness - 6f * scale
             : outerRadius - 3f * scale;
         float plateRadius = diagramRadius + 4f * scale;
-        Gfx.GaugePlate(drawList, center, plateRadius, opacity, rim: true, scale);
+        Gfx.GaugePlate(drawList, center, plateRadius, gaugeOpacity, rim: true, scale);
 
         if (showArc)
         {
-            DrawPropellantArc(drawList, center, arcRadius, arcThickness, opacity);
+            DrawPropellantArc(
+                drawList, center, arcRadius, arcThickness, gaugeOpacity, context.Intro.ArcSweep);
         }
-        DrawEngines(drawList, snapshot, center, diagramRadius, opacity, scale);
+
+        DrawEngines(drawList, center, diagramRadius, dotOpacity, scale, context.Intro.Readouts);
     }
 
     private void UpdateSmoothing(TelemetrySnapshot snapshot, double dt, OverlayConfig config)
@@ -76,7 +140,12 @@ public sealed class EngineClusterPanel : IOverlayPanel
     }
 
     private void DrawPropellantArc(
-        ImDrawListPtr drawList, float2 center, float radius, float thickness, float opacity)
+        ImDrawListPtr drawList,
+        float2 center,
+        float radius,
+        float thickness,
+        float opacity,
+        float fillPhase)
     {
         float start = -ArcHalfSweep;
         float end = ArcHalfSweep;
@@ -84,7 +153,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
         Gfx.Arc(drawList, center, radius, start, end,
             OverlayStyle.ArcTrack, thickness, opacity);
 
-        float level = Math.Clamp(_propellant, 0f, 1f);
+        float level = Math.Clamp(_propellant, 0f, 1f) * fillPhase;
         if (level <= 0f)
         {
             return;
@@ -92,24 +161,144 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
         float fillEnd = start + (end - start) * level;
 
-        uint fillColor = level <= 0.10f ? OverlayStyle.EngineStarved
-            : level <= 0.25f ? OverlayStyle.Caution
+        // not using this anymore, but want to leave it in for now
+        uint fillColor = level <= 0.10f ? OverlayStyle.ArcFill
+            : level <= 0.25f ? OverlayStyle.ArcFill
             : OverlayStyle.ArcFill;
 
         Gfx.Arc(drawList, center, radius, start, fillEnd, fillColor, thickness, opacity);
     }
 
-    private static void DrawEngines(
-        ImDrawListPtr drawList,
-        TelemetrySnapshot snapshot,
-        float2 center,
-        float radius,
-        float opacity,
-        float scale)
+    private void UpdateDotStates(List<EngineSample> engines, double dt)
+    {
+        for (int i = 0; i < engines.Count; i++)
+        {
+            EngineStatus status = engines[i].Status;
+            ref DotState dot = ref _dots[i];
+
+            if (!dot.Active)
+            {
+                dot.Active = true;
+                dot.Shown = status;
+                dot.Pending = status;
+                dot.Delay = 0.0;
+                dot.FromColor = OverlayStyle.ColorFor(status);
+                dot.Fade = 1f;
+                continue;
+            }
+
+            if (status != dot.Pending)
+            {
+                dot.Pending = status;
+                dot.Delay = _jitter.NextDouble() * StateJitterSeconds;
+            }
+
+            if (dot.Pending != dot.Shown)
+            {
+                dot.Delay -= dt;
+
+                if (dot.Delay <= 0.0)
+                {
+                    dot.FromColor = CurrentColor(in dot);
+                    dot.Shown = dot.Pending;
+                    dot.Fade = 0f;
+                }
+            }
+
+            if (dot.Fade < 1f)
+            {
+                dot.Fade = Math.Clamp(dot.Fade + (float)(dt / StateFadeSeconds), 0f, 1f);
+            }
+        }
+    }
+
+    private static uint CurrentColor(ref readonly DotState dot)
+        => OverlayStyle.Lerp(dot.FromColor, OverlayStyle.ColorFor(dot.Shown), dot.Fade);
+
+    private void UpdateCluster(TelemetrySnapshot snapshot, double dt)
     {
         List<EngineSample> engines = snapshot.Engines;
 
-        if (engines.Count == 0)
+        if (engines.Count != _dots.Length)
+        {
+            if (_live.Count > 0)
+            {
+                _outgoing.CopyFrom(_live);
+                _swap = SwapPhase.Out;
+                _swapT = 0f;
+            }
+
+            _dots = new DotState[engines.Count];
+
+            float maxSizeFactor = 0f;
+            for (int i = 0; i < engines.Count; i++)
+            {
+                maxSizeFactor = MathF.Max(maxSizeFactor, SizeFactorOf(engines[i]));
+            }
+
+            _live.Normalised = engines.Count > 0 ? ComputeNormalisedDotRadius(engines) : 0f;
+            _live.MaxSizeFactor = maxSizeFactor;
+        }
+
+        AdvanceSwap(dt);
+        UpdateDotStates(engines, dt);
+        BuildLiveSet(engines);
+    }
+
+    private void AdvanceSwap(double dt)
+    {
+        switch (_swap)
+        {
+            case SwapPhase.Out:
+                _swapT += (float)(dt / SwapOutSeconds);
+                if (_swapT >= 1f)
+                {
+                    _swap = SwapPhase.In;
+                    _swapT = 0f;
+                }
+                break;
+
+            case SwapPhase.In:
+                _swapT += (float)(dt / SwapInSeconds);
+                if (_swapT >= 1f)
+                {
+                    _swap = SwapPhase.Idle;
+                    _swapT = 1f;
+                }
+                break;
+        }
+    }
+
+    private void BuildLiveSet(List<EngineSample> engines)
+    {
+        // Clear() leaves Normalised/MaxSizeFactor alone - they were solved when
+        // the set was adopted and hold until it changes.
+        _live.Clear();
+
+        for (int i = 0; i < engines.Count; i++)
+        {
+            EngineSample engine = engines[i];
+            ref readonly DotState dot = ref _dots[i];
+
+            _live.Offsets.Add(new float2(engine.DiagramX, engine.DiagramY));
+            _live.SizeFactors.Add(SizeFactorOf(engine));
+            _live.Colors.Add(CurrentColor(in dot));
+            _live.Burning.Add(dot.Shown is EngineStatus.Nominal or EngineStatus.Throttled);
+        }
+    }
+
+    private void DrawEngines(
+        ImDrawListPtr drawList,
+        float2 center,
+        float radius,
+        float opacity,
+        float scale,
+        float introPhase)
+    {
+        bool retracting = _swap == SwapPhase.Out;
+        DotSet set = retracting ? _outgoing : _live;
+
+        if (set.Count == 0)
         {
             float labelSize = OverlayFonts.LabelSize * scale;
             float2 extent = Gfx.MeasureWithFont(OverlayFonts.Label, labelSize, "NO ENGINES".AsSpan());
@@ -120,47 +309,59 @@ public sealed class EngineClusterPanel : IOverlayPanel
             return;
         }
 
-        float maxSizeFactor = 0f;
-        for (int i = 0; i < engines.Count; i++)
+        float swapPhase = _swap switch
         {
-            maxSizeFactor = MathF.Max(maxSizeFactor, SizeFactorOf(engines[i]));
+            SwapPhase.Out => 1f - EaseOut(_swapT),
+            SwapPhase.In => EaseOut(_swapT),
+            _ => 1f,
+        };
+
+        float phase = MathF.Min(introPhase, swapPhase);
+        float alpha = opacity * phase;
+
+        if (alpha <= 0f)
+        {
+            return;
         }
 
-        float normalised = ComputeNormalisedDotRadius(engines);
-        float margin = EnvelopeMargin * scale;
-        float plotRadius = MathF.Max((radius - margin) / (1f + normalised * maxSizeFactor), 1f);
-        plotRadius *= ClusterFillFraction;
-        float baseDotRadius = MathF.Max(normalised * plotRadius, MinDotRadius * scale);
+        float popScale = IntroDotStartScale + (1f - IntroDotStartScale) * phase;
 
-        for (int i = 0; i < engines.Count; i++)
+        float margin = EnvelopeMargin * scale;
+        float plotRadius = MathF.Max(
+            (radius - margin) / (1f + set.Normalised * set.MaxSizeFactor), 1f);
+        plotRadius *= ClusterFillFraction;
+        float baseDotRadius = MathF.Max(set.Normalised * plotRadius, MinDotRadius * scale);
+
+        for (int i = 0; i < set.Count; i++)
         {
-            EngineSample engine = engines[i];
+            float2 offset = set.Offsets[i];
 
             float2 pos = new(
-                center.X + engine.DiagramX * plotRadius,
-                center.Y - engine.DiagramY * plotRadius);
+                center.X + offset.X * plotRadius,
+                center.Y - offset.Y * plotRadius);
 
-            uint color = OverlayStyle.ColorFor(engine.Status);
-            float dotRadius = MathF.Max(baseDotRadius * SizeFactorOf(engine), 2.5f * scale);
+            uint color = set.Colors[i];
 
-            if (engine.IsBurning)
+            float dotRadius =
+                MathF.Max(baseDotRadius * set.SizeFactors[i], 2.5f * scale) * popScale;
+
+            if (set.Burning[i])
             {
                 // subtle glow around burning engines
                 drawList.AddCircleFilled(in pos, dotRadius * 1.1f,
-                    OverlayStyle.WithOpacity(color, opacity * 0.20f));
+                    OverlayStyle.WithOpacity(color, alpha * 0.20f));
             }
 
-            if (engine.Status is EngineStatus.Inactive or EngineStatus.Armed)
-            {
-                drawList.AddCircle(in pos, dotRadius,
-                    OverlayStyle.WithOpacity(color, opacity), 0, MathF.Max(1f, 1.4f * scale));
-            }
-            else
-            {
-                drawList.AddCircleFilled(in pos, dotRadius, OverlayStyle.WithOpacity(color, opacity));
-            }
+            drawList.AddCircleFilled(in pos, dotRadius, OverlayStyle.WithOpacity(color, alpha));
         }
     }
+
+    private static float EaseOut(float t)
+    {
+        float inv = 1f - Math.Clamp(t, 0f, 1f);
+        return 1f - inv * inv * inv;
+    }
+
     private static float ComputeNormalisedDotRadius(List<EngineSample> engines)
     {
         int count = engines.Count;

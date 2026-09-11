@@ -10,11 +10,10 @@ public sealed class NotificationPanel : IOverlayPanel
     private const double FadeOut = 0.8;
     private const double Lifetime = FadeIn + Hold + FadeOut;
     private const int MaxVisible = 3;
-
     private const float PadX = 14f;
     private const float PadY = 7f;
     private const float LabelGap = 8f;
-    private const float EntryGap = 4f;
+    private const float EntryGap = 1f;
     private const float Notch = 16f;
     private const float LabelSizeMultiplier = 15f / 11f;
     private const float ExplainerSizeMultiplier = 14f / 16f;
@@ -29,7 +28,6 @@ public sealed class NotificationPanel : IOverlayPanel
     }
 
     private readonly List<Entry> _entries = [];
-
     private int _seenCount;
     private int _seenGeneration = -1;
     private readonly List<float> _entryHeights = [];
@@ -38,7 +36,7 @@ public sealed class NotificationPanel : IOverlayPanel
 
     public string Id => "notifications";
 
-    public string DisplayName => "Event Callouts";
+    public string DisplayName => "Event Notifications";
 
     public void Reset()
     {

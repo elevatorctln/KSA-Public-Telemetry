@@ -4,6 +4,8 @@ KSA Public Telemetry
 
 This is a work-in-progress mod for Kitten Space Agency that creates a SpaceX-style launch broadcast telemetry overlay in-game. The overlay is populated with live data from the active vehicle and the mod includes an engine diagram generated automatically using the actual position of the engines on your stage relative to each other.
 
+Toggle the overlay on and off using the numpad period key (I know). This can be configured in the config file.
+
 ## Features
 
 - A broadcast-style bottom bar: speed and altitude on the left, T+ clock and mission timeline in the center, g-force and the engine diagram on the right.
@@ -34,8 +36,8 @@ This feels important for me to be clear about: KSA is in pre-alpha and this mod 
 
 ## Settings
 
-If [ModMenu](https://github.com/MrJeranimo/ModMenu) is installed, settings appear under **Mods > Telemetry Overlay**. ModMenu is optional. Without it, press **F9** for the same settings in a standalone window.
+If [ModMenu](https://github.com/MrJeranimo/ModMenu) is installed, settings appear under **Mods > Telemetry Overlay**. ModMenu is optional. Without it, press **numpad slash** for the same settings in a standalone window.
 
-**F8** toggles the overlay.
+**Numpad period** toggles the overlay.
 
 Settings are saved to `Documents/My Games/Kitten Space Agency/KSATelemetryOverlay/config.json`, which is safe to hand-edit.

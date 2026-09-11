@@ -6,41 +6,55 @@ public sealed class FlightUiController
 {
     private readonly List<GaugeCanvas> _suppressed = [];
     private bool _hidden;
+    private int _seenCanvasCount = -1;
+
     public bool IsHiding => _hidden;
     public int SuppressedCount => _suppressed.Count;
 
     public void SetHidden(bool hidden)
     {
-        if (hidden == _hidden)
+        if (hidden)
         {
-            if (hidden)
+            if (!_hidden)
             {
-                Suppress();
+                _hidden = true;
+                _seenCanvasCount = -1;
             }
 
+            Maintain();
             return;
         }
 
-        _hidden = hidden;
-
-        if (hidden)
-        {
-            Suppress();
-        }
-        else
+        if (_hidden)
         {
             Restore();
         }
     }
 
-    private void Suppress()
+    private void Maintain()
     {
+        // Only touch the HUD in flight
         if (Program.ControlledVehicle is null)
         {
             return;
         }
 
+        for (int i = 0; i < _suppressed.Count; i++)
+        {
+            if (_suppressed[i].Enabled)
+            {
+                _suppressed[i].SetEnabled(false);
+            }
+        }
+
         IReadOnlyList<GaugeCanvas> canvases = GaugeCanvas.AllCanvases;
+
+        if (canvases.Count == _seenCanvasCount)
+        {
+            return;
+        }
+
+        _seenCanvasCount = canvases.Count;
 
         for (int i = 0; i < canvases.Count; i++)
         {
@@ -55,11 +69,14 @@ public sealed class FlightUiController
             _suppressed.Add(canvas);
         }
     }
+
     public void Restore()
     {
+        _hidden = false;
+        _seenCanvasCount = -1;
+
         if (_suppressed.Count == 0)
         {
-            _hidden = false;
             return;
         }
 
@@ -76,6 +93,5 @@ public sealed class FlightUiController
         }
 
         _suppressed.Clear();
-        _hidden = false;
     }
 }
