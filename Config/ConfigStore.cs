@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using KSA;
 using KSATelemetryOverlay.Rendering;
@@ -56,16 +57,22 @@ public static class ConfigStore
                 return config;
             }
 
-            ConfigFile? file = JsonSerializer.Deserialize<ConfigFile>(File.ReadAllText(path), _options);
+            // Each section is read on its own so a bad value in one (a renamed enum
+            // member, a hand-edit gone wrong) cannot take the others down with it.
+            JsonObject? root = JsonNode.Parse(File.ReadAllText(path), documentOptions: new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip,
+            }) as JsonObject;
 
-            if (file?.Settings is { } loaded)
+            if (LoadSettings(root?["settings"]) is { } loaded)
             {
                 config = loaded;
                 Sanitise(config);
             }
 
-            OverlayPalette.ApplyOverrides(file?.Colors);
-            Rendering.Tuning.ApplyOverrides(file?.Tuning);
+            OverlayPalette.ApplyOverrides(LoadSection<Dictionary<string, string>>(root?["colors"], "colors"));
+            Rendering.Tuning.ApplyOverrides(LoadSection<Dictionary<string, double>>(root?["tuning"], "tuning"));
             Console.WriteLine(LogPrefix + $"loaded config from {path}.");
         }
         catch (Exception ex)
@@ -81,6 +88,59 @@ public static class ConfigStore
     }
 
     public static void Track(OverlayConfig config) => _tracked = config;
+
+    private static T? LoadSection<T>(JsonNode? node, string name) where T : class
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return node.Deserialize<T>(_options);
+        }
+        catch (JsonException ex)
+        {
+            Console.WriteLine(LogPrefix + $"ignoring the '{name}' section of the config: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The enum-typed settings are the ones that stop deserialising when a member is
+    /// renamed. On failure they are dropped one at a time and the rest is retried, so
+    /// a stale key name costs that one setting rather than every window position.
+    /// </summary>
+    private static readonly string[] _fragileSettings =
+        ["ToggleKey", "SettingsKey", "LeftSlots", "RightSlots", "Windows", "MissionEpochs"];
+
+    private static OverlayConfig? LoadSettings(JsonNode? node)
+    {
+        if (node is not JsonObject settings)
+        {
+            return null;
+        }
+
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return settings.Deserialize<OverlayConfig>(_options);
+            }
+            catch (JsonException ex)
+            {
+                if (attempt >= _fragileSettings.Length)
+                {
+                    throw;
+                }
+
+                string dropped = _fragileSettings[attempt];
+                Console.WriteLine(LogPrefix + $"could not read '{dropped}' from the config, using its default: {ex.Message}");
+                settings.Remove(dropped);
+            }
+        }
+    }
 
     public static void MarkDirty()
     {
@@ -139,9 +199,12 @@ public static class ConfigStore
 
     private static void Sanitise(OverlayConfig config)
     {
-        config.Scale = Math.Clamp(config.Scale, 0.5f, 2.5f);
-        config.Opacity = Math.Clamp(config.Opacity, 0.1f, 1f);
-        config.SmoothingSeconds = Math.Clamp(config.SmoothingSeconds, 0f, 2f);
+        config.Scale = Math.Clamp(config.Scale, OverlayConfig.MinScale, OverlayConfig.MaxScale);
+        config.Opacity = Math.Clamp(config.Opacity, OverlayConfig.MinOpacity, OverlayConfig.MaxOpacity);
+        config.SmoothingSeconds = Math.Clamp(
+            config.SmoothingSeconds, OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing);
+        config.TimelineWindowSeconds = Math.Clamp(
+            config.TimelineWindowSeconds, OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow);
 
         config.LeftSlots = SanitiseSlots(config.LeftSlots, [ReadoutKind.Speed, ReadoutKind.Altitude]);
         config.RightSlots = SanitiseSlots(config.RightSlots, [ReadoutKind.GForce]);

@@ -19,8 +19,8 @@ public sealed class MissionClockPanel : IOverlayPanel
     {
         Span<char> buffer = stackalloc char[16];
         ReadOnlySpan<char> time = Format.MissionTime(buffer, context.Snapshot.MissionElapsedSeconds);
-
-        float2 timeSize = Gfx.MeasureWithFont(OverlayFonts.Numeric, OverlayFonts.ClockSize, time);
+        
+        float2 timeSize = Gfx.MeasureTabular(OverlayFonts.Numeric, OverlayFonts.ClockSize, time);
         float2 prefixSize = Gfx.MeasureWithFont(OverlayFonts.Body, OverlayFonts.BodySize, "T+".AsSpan());
 
         ReadOnlySpan<char> name = ResolveMissionName(in context);
@@ -37,7 +37,6 @@ public sealed class MissionClockPanel : IOverlayPanel
     public void Draw(in PanelContext context, float2 origin, float2 size)
     {
         ImDrawListPtr drawList = context.DrawList;
-        // way more efficient
         float opacity = context.BackdropOpacity;
         float scale = context.Scale;
 
@@ -50,7 +49,7 @@ public sealed class MissionClockPanel : IOverlayPanel
 
         ReadOnlySpan<char> prefix = context.Snapshot.HasLiftoff ? "T+".AsSpan() : "T-".AsSpan();
 
-        float2 timeSize = Gfx.MeasureWithFont(OverlayFonts.Numeric, numericSize, time);
+        float2 timeSize = Gfx.MeasureTabular(OverlayFonts.Numeric, numericSize, time);
         float2 prefixSize = Gfx.MeasureWithFont(OverlayFonts.Body, bodySize, prefix);
 
         float centerX = origin.X + size.X * 0.5f;
@@ -69,7 +68,7 @@ public sealed class MissionClockPanel : IOverlayPanel
             drawList, OverlayFonts.Body, bodySize,
             new float2(groupLeft, prefixY), OverlayStyle.TextMuted, prefix, opacity);
 
-        Gfx.TextFont(
+        Gfx.TextTabular(
             drawList, OverlayFonts.Numeric, numericSize,
             new float2(groupLeft + prefixSize.X + PrefixGap * scale, clockTop),
             timeColor, time, opacity);

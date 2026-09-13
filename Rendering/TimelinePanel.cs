@@ -7,7 +7,6 @@ public sealed class TimelinePanel : IOverlayPanel
 {
     private const float PreferredWidth = 1000f;
     private const float PreferredHeight = 56f;
-    private const double WindowSeconds = 240.0;
     private const float NowFraction = 0.5f;
     private const float LabelOffset = 7f;
     private const float MinLabelGap = 6f;
@@ -42,7 +41,7 @@ public sealed class TimelinePanel : IOverlayPanel
         float scale = context.Scale;
 
         double now = context.Snapshot.MissionElapsedSeconds;
-        double halfWindow = WindowSeconds * 0.5;
+        double halfWindow = context.Config.TimelineWindowSeconds * 0.5;
 
         float trackY = origin.Y + size.Y * 0.5f;
         float left = origin.X;

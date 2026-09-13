@@ -36,9 +36,9 @@ public static class OverlayStyle
         public const uint TextShadow  = 0x8C000000u;
         public const uint EngineNominal   = 0xFFFFFFFFu; // white, opaque - running
         public const uint EngineThrottled = 0xFFFFFFFFu; // white, opaque - running
-        public const uint EngineArmed     = 0xCC4F4A46; // dark grey, partially transparent - off
-        public const uint EngineStarved   = 0xCC4F4A46; // dark grey, partially transparent - off
-        public const uint EngineInactive  = 0xCC4F4A46; // dark grey, partially transparent - off
+        public const uint EngineArmed     = 0xE64F4A46; // dark grey, partially transparent - off
+        public const uint EngineStarved   = 0xE64F4A46; // dark grey, partially transparent - off
+        public const uint EngineInactive  = 0xE64F4A46; // dark grey, partially transparent - off
         public const uint ArcFill  = 0xFFFFFFFFu;
         public const uint ArcTrack = 0x4DFFFFFFu;
         public const uint ShelfBottom = 0xB0000000u;

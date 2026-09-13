@@ -8,6 +8,7 @@
 		<Nullable>enable</Nullable>
 		<LangVersion>latest</LangVersion>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Version>1.1.0</Version>
 		<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
 	</PropertyGroup>
 
@@ -15,8 +16,14 @@
 		<None Update="mod.toml">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</None>
-		<!-- Overlay fonts are loaded at runtime from beside the DLL. -->
-		<None Include="montserrat\**\*.ttf" Link="montserrat\%(Filename)%(Extension)">
+		<!-- Overlay fonts are loaded at runtime from beside the DLL. OFL.txt ships
+		     with them: the SIL Open Font License requires the licence to travel with
+		     the font, and the mod rules require bundled work to carry its licence. -->
+		<None Include="montserrat\**\*.ttf;montserrat\OFL.txt" Link="montserrat\%(Filename)%(Extension)">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<!-- Mod rules require the full licence text in the download itself. -->
+		<None Update="LICENSE.TXT">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 	</ItemGroup>

@@ -67,7 +67,7 @@ public sealed class OverlayRenderer
             && snapshot.HasVehicle
             && !(_config.HideOnRails && snapshot.OnRails);
 
-        _flightUi.SetHidden(overlayVisible && _config.ReplaceFlightUi);
+        _flightUi.SetHidden(overlayVisible && _config.ReplaceFlightUi && !LayoutWindowOpen());
 
         if (overlayVisible && !_wasVisible)
         {
@@ -118,9 +118,6 @@ public sealed class OverlayRenderer
             DrawBackdrop(in context, drawList, viewport);
         }
 
-        // Top-anchored panels start below the menu bar. Taking it off the top of the
-        // work area leaves the bottom edge exactly where it was, so only the
-        // notifications move.
         float topInset = MenuBarInset(viewport);
 
         _host.DrawAll(
@@ -133,19 +130,12 @@ public sealed class OverlayRenderer
             DrawSignalLostBanner(drawList, viewport.Pos, viewport.Size);
         }
     }
+    private static bool LayoutWindowOpen()
+    {
+        ImGuiWindowPtr window = ImGui.Internal.FindWindowByName("LAYOUTS###KSA.LayoutSaves+LayoutSavesWindow_"u8);
+        return !window.IsNull() && window.WasActive;
+    }
 
-    /// <summary>
-    /// How far down the game's menu bar reaches into the viewport.
-    ///
-    /// It has to be measured rather than read off the viewport: KSA's bar is a plain
-    /// window pinned to the top (Program.cs, "Menu Bar", auto-height) and not an
-    /// ImGui main menu bar, so it reserves no work area at all and WorkPos sits level
-    /// with Pos. The bar also auto-hides, and its height follows the interface scale,
-    /// so a fixed offset would be wrong about as often as it was right.
-    ///
-    /// Falls back to nothing but the clearance if the window cannot be found, which
-    /// is what happens on the first frame and would happen if KSA ever renames it.
-    /// </summary>
     private static float MenuBarInset(ImGuiViewportPtr viewport)
     {
         float clearance = Tuning.MenuBarClearance;
@@ -254,8 +244,8 @@ public sealed class OverlayRenderer
         float padY = 7f * _config.Scale;
 
         float2 min = new(
-            viewport.Pos.X + Tuning.SideMargin * _config.Scale,
-            viewport.Pos.Y + viewport.Size.Y - extent.Y - padY * 2f - Tuning.SideMargin * _config.Scale);
+            viewport.Pos.X + Tuning.PanelEdgeMarginX * _config.Scale,
+            viewport.Pos.Y + viewport.Size.Y - extent.Y - padY * 2f - Tuning.PanelEdgeMarginY * _config.Scale);
         float2 max = min + new float2(extent.X + padX * 2f, extent.Y + padY * 2f);
 
         Gfx.Panel(drawList, min, max, _config.Opacity);

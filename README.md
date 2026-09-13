@@ -12,10 +12,10 @@ I am completely open to contributions and suggestions and certainly issue report
 - An engine diagram built from the real nozzle positions on your active stage, with a propellant arc gauge around it.
 - Event notifications for certain in-flight events. Be warned that this is not totally reliable, maybe I'll make it a toggle or something.
 - A mission timeline bar showing detected events behind the marker and any planned maneuvers ahead of it. Same deal as the event notifications.
-- Freeze-on-signal-loss: if the vehicle stops being controllable, the overlay freezes at the last recieved values.
-- Optionally and by default hides the flight UI while the overlay is up, and restores it afterwards.
+- Freeze-on-signal-loss: if the vehicle stops being controllable, the overlay freezes at the last received values.
+- Optionally and by default hides the flight UI while the overlay is up, and restores it afterwards. The HUD is shown again while the game's own layout-saving window is open, so a HUD layout saved with the overlay running does not have everything switched off.
 - Every element is also available as its own movable imgui window that behaves like any other.
-- Fairly in-depth configuration avalible in the settlings menu.
+- Fairly in-depth configuration available in the settings menu.
 
 ## Installation
 

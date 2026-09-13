@@ -1,11 +1,13 @@
+using System.Globalization;
+
 namespace KSATelemetryOverlay.Rendering;
 
 public static class Format
 {
-        private static ReadOnlySpan<char> Write(
+    private static ReadOnlySpan<char> Write(
         Span<char> buffer, double value, ReadOnlySpan<char> numericFormat, ReadOnlySpan<char> suffix)
     {
-        if (!value.TryFormat(buffer, out int written, numericFormat))
+        if (!value.TryFormat(buffer, out int written, numericFormat, CultureInfo.InvariantCulture))
         {
             return "--".AsSpan();
         }
@@ -81,7 +83,7 @@ public static class Format
             buffer[written++] = (char)('0' + (int)(hours / 10L % 10L));
             buffer[written++] = (char)('0' + (int)(hours % 10L));
         }
-        else if (!hours.TryFormat(buffer[written..], out int hourChars))
+        else if (!hours.TryFormat(buffer[written..], out int hourChars, default, CultureInfo.InvariantCulture))
         {
             return "--:--:--".AsSpan();
         }

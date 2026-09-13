@@ -57,7 +57,7 @@ public static class OverlayFonts
             Label = null;
             Body = null;
             Console.WriteLine(
-                $"[TelemetryOverlay] font load failed, using the game font: {ex.Message}");
+                $"[KSATelemetryOverlay] font load failed, using the game font: {ex.Message}");
         }
     }
 

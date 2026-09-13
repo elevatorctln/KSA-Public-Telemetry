@@ -18,7 +18,7 @@ public enum ReadoutKind : byte
 
 public sealed class ReadoutPanel : IOverlayPanel
 {
-    private const float CapsuleSize = 150f;
+    public const float CapsuleSize = 150f;
     private const float CapsuleGap = 3f;
     private const float IntroRingStartScale = 0.72f;
     private const float IntroTextStartScale = 0.82f;
@@ -133,17 +133,17 @@ public sealed class ReadoutPanel : IOverlayPanel
 
         for (int i = 0; i < Kinds.Length; i++)
         {
-            float target = RawValue(Kinds[i], context.Snapshot);
+            float target = RawValue(Kinds[i], context.Snapshot, context.Config);
             _smoothed[i] += (float)((target - _smoothed[i]) * alpha);
         }
 
         _initialised = true;
     }
 
-    private static float RawValue(ReadoutKind kind, TelemetrySnapshot s) => kind switch
+    private static float RawValue(ReadoutKind kind, TelemetrySnapshot s, OverlayConfig config) => kind switch
     {
         ReadoutKind.Speed           => (float)s.SurfaceSpeed,
-        ReadoutKind.Altitude        => (float)s.Altitude,
+        ReadoutKind.Altitude        => (float)(config.TerrainRelativeAltitude ? s.RadarAltitude : s.Altitude),
         ReadoutKind.GForce          => (float)s.GLoad,
         ReadoutKind.VerticalSpeed   => (float)s.VerticalSpeed,
         ReadoutKind.Thrust          => s.Thrust,

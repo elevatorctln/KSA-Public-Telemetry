@@ -11,6 +11,15 @@ public static class SettingsUi
     private static WindowHost? _windows;
     private static ImInputString? _missionName;
     private static bool _windowOpen;
+    private enum KeySlot : byte { None, Toggle, Settings }
+    private static KeySlot _capturing;
+    public static bool IsCapturingKey => _capturing != KeySlot.None;
+
+    private static readonly ImGuiKey[] _modifierKeys =
+    [
+        ImGuiKey.LeftCtrl, ImGuiKey.LeftShift, ImGuiKey.LeftAlt, ImGuiKey.LeftSuper,
+        ImGuiKey.RightCtrl, ImGuiKey.RightShift, ImGuiKey.RightAlt, ImGuiKey.RightSuper,
+    ];
 
     private static readonly (string Label, string Field)[] _editableColors =
     [
@@ -26,8 +35,8 @@ public static class SettingsUi
         ("Engine - armed",       nameof(OverlayStyle.EngineArmed)),
         ("Engine - starved",     nameof(OverlayStyle.EngineStarved)),
         ("Engine - inactive",    nameof(OverlayStyle.EngineInactive)),
-        ("Backdrop",             nameof(OverlayStyle.ShelfBottom)),
-        ("Backdrop edge",        nameof(OverlayStyle.ShelfTop)),
+        ("Backdrop fade",        nameof(OverlayStyle.ShelfBottom)),
+        ("Shelf plates",         nameof(OverlayStyle.ShelfBox)),
         ("Gauge plate",          nameof(OverlayStyle.GaugePlate)),
         ("Gauge rim",            nameof(OverlayStyle.GaugeRim)),
         ("Timeline - elapsed",   nameof(OverlayStyle.TimelinePast)),
@@ -89,6 +98,10 @@ public static class SettingsUi
         changed |= ImGui.Checkbox("Hide while on rails"u8, ref config.HideOnRails);
         changed |= ImGui.Checkbox("Status when no vehicle"u8, ref config.ShowStatusWhenIdle);
 
+        ImGui.SeparatorText("Hotkeys"u8);
+        changed |= DrawKeyBinding("Toggle overlay"u8, ref config.ToggleKey, KeySlot.Toggle);
+        changed |= DrawKeyBinding("Open settings"u8, ref config.SettingsKey, KeySlot.Settings);
+
         ImGui.SeparatorText("Elements"u8);
         changed |= ImGui.Checkbox("Readouts"u8, ref config.ShowTelemetryBar);
         changed |= ImGui.Checkbox("Engine diagram"u8, ref config.ShowEngineDiagram);
@@ -96,6 +109,7 @@ public static class SettingsUi
         changed |= ImGui.Checkbox("Mission clock"u8, ref config.ShowMissionClock);
         changed |= ImGui.Checkbox("Timeline"u8, ref config.ShowTimeline);
         changed |= ImGui.Checkbox("Event Notifications"u8, ref config.ShowNotifications);
+        changed |= ImGui.Checkbox("Terrain-relative altitude"u8, ref config.TerrainRelativeAltitude);
 
         ImGui.SeparatorText("Readout slots"u8);
         changed |= DrawSlotEditor("Left"u8, "left", ref config.LeftSlots, config);
@@ -103,11 +117,17 @@ public static class SettingsUi
 
         ImGui.SeparatorText("Presentation"u8);
         ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Scale"u8, ref config.Scale, 0.6f, 2f, "%.2f"u8);
+        changed |= ImGui.SliderFloat("Scale"u8, ref config.Scale,
+            OverlayConfig.MinScale, OverlayConfig.MaxScale, "%.2f"u8);
         ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Opacity"u8, ref config.Opacity, 0.2f, 1f, "%.2f"u8);
+        changed |= ImGui.SliderFloat("Opacity"u8, ref config.Opacity,
+            OverlayConfig.MinOpacity, OverlayConfig.MaxOpacity, "%.2f"u8);
         ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Smoothing"u8, ref config.SmoothingSeconds, 0f, 0.6f, "%.2f s"u8);
+        changed |= ImGui.SliderFloat("Smoothing"u8, ref config.SmoothingSeconds,
+            OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing, "%.2f s"u8);
+        ImGui.SetNextItemWidth(160f);
+        changed |= ImGui.SliderFloat("Timeline window"u8, ref config.TimelineWindowSeconds,
+            OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow, "%.0f s"u8);
 
         ImGui.SeparatorText("Mission name"u8);
         if (_missionName is { } buffer)
@@ -170,6 +190,64 @@ public static class SettingsUi
         {
             ConfigStore.MarkDirty();
         }
+    }
+
+    private static bool DrawKeyBinding(ImString label, ref ImGuiKey key, KeySlot slot)
+    {
+        bool changed = false;
+
+        ImGui.PushID((int)slot);
+        ImGui.SetNextItemWidth(160f);
+
+        if (_capturing == slot)
+        {
+            ImGui.Button("Press a key... (Esc cancels)"u8, new float2(200f, 0f));
+
+            if (!ImGui.GetIO().WantTextInput)
+            {
+                ImGuiKey pressed = PollPressedKey();
+
+                if (pressed == ImGuiKey.Escape)
+                {
+                    _capturing = KeySlot.None;
+                }
+                else if (pressed != ImGuiKey.None)
+                {
+                    key = pressed;
+                    _capturing = KeySlot.None;
+                    changed = true;
+                }
+            }
+        }
+        else if (ImGui.Button(key.ToString(), new float2(200f, 0f)))
+        {
+            _capturing = slot;
+        }
+
+        ImGui.SameLine();
+        ImGui.Text(label);
+        ImGui.PopID();
+
+        return changed;
+    }
+
+    private static ImGuiKey PollPressedKey()
+    {
+        // Keyboard keys only: Tab through Oem102. Gamepad and mouse ranges follow.
+        for (ImGuiKey key = ImGuiKey.NamedKey_BEGIN; key <= ImGuiKey.Oem102; key++)
+        {
+            if (Array.IndexOf(_modifierKeys, key) >= 0)
+            {
+                continue;
+            }
+
+            if (ImGui.IsKeyPressed(key, repeat: false))
+            {
+                return key;
+            }
+        }
+
+        return ImGuiKey.None;
     }
 
     private static void DrawWindowToggles()

@@ -20,9 +20,8 @@ public sealed class MissionEventLog
 
     private bool _liftoffFired;
     private bool _maxQFired;
-    private int _stageSepCount;
-
-    private double _burningSince;
+    private int _cutoffCount;
+    private double _burnStartedAt = double.NegativeInfinity;
     private double _lastCutoffTime = double.NegativeInfinity;
     private double _lastStageSepTime = double.NegativeInfinity;
 
@@ -48,9 +47,9 @@ public sealed class MissionEventLog
 
         _liftoffFired = false;
         _maxQFired = false;
-        _stageSepCount = 0;
+        _cutoffCount = 0;
 
-        _burningSince = 0.0;
+        _burnStartedAt = double.NegativeInfinity;
         _lastCutoffTime = double.NegativeInfinity;
         _lastStageSepTime = double.NegativeInfinity;
 
@@ -61,7 +60,7 @@ public sealed class MissionEventLog
     }
 
     public void Update(
-        TelemetrySnapshot snapshot, bool liftoffThisFrame, double dt, int missionVehicleCount)
+        TelemetrySnapshot snapshot, bool liftoffThisFrame, int missionVehicleCount, bool rebaseline)
     {
         _firedThisFrame.Clear();
 
@@ -77,17 +76,23 @@ public sealed class MissionEventLog
 
         bool sameVehicle = string.Equals(_baselineVehicle, snapshot.VehicleName, StringComparison.Ordinal);
 
-        if (!sameVehicle)
+        if (!sameVehicle || rebaseline)
         {
             _baselineVehicle = snapshot.VehicleName;
             _previousBurning = burning;
             _previousPartCount = parts;
-            _burningSince = burning > 0 ? MinBurnBeforeCutoff : 0.0;
+            _burnStartedAt = burning > 0 ? now - MinBurnBeforeCutoff : double.NegativeInfinity;
             return;
         }
 
-        double endingRunLength = _burningSince;
-        _burningSince = burning > 0 ? _burningSince + dt : 0.0;
+        if (burning > 0 && _previousBurning == 0)
+        {
+            _burnStartedAt = now;
+        }
+
+        double endingRunLength = burning > 0 || _burnStartedAt == double.NegativeInfinity
+            ? 0.0
+            : now - _burnStartedAt;
 
         if (liftoffThisFrame && !_liftoffFired)
         {
@@ -139,7 +144,6 @@ public sealed class MissionEventLog
         }
 
         _lastStageSepTime = now;
-        _stageSepCount++;
         Record(new MissionEvent(MissionEventKind.StageSep, now));
     }
 
@@ -157,13 +161,14 @@ public sealed class MissionEventLog
 
         _lastCutoffTime = now;
 
-        MissionEventKind kind = _stageSepCount switch
+        MissionEventKind kind = _cutoffCount switch
         {
             0 => MissionEventKind.Meco,
             1 => MissionEventKind.Seco,
             _ => MissionEventKind.EngineCutoff,
         };
 
+        _cutoffCount++;
         Record(new MissionEvent(kind, now));
     }
 

@@ -13,6 +13,7 @@ public sealed class SignalState
     public SignalStatus Status { get; private set; } = SignalStatus.NoVehicle;
     public double SecondsSinceLoss { get; private set; }
     public bool LostThisFrame { get; private set; }
+    public bool RegainedThisFrame { get; private set; }
     public bool IsFrozen => Status == SignalStatus.Lost;
 
     public void Reset()
@@ -21,11 +22,13 @@ public sealed class SignalState
         Status = SignalStatus.NoVehicle;
         SecondsSinceLoss = 0.0;
         LostThisFrame = false;
+        RegainedThisFrame = false;
     }
 
     public void SetNoVehicle()
     {
         LostThisFrame = false;
+        RegainedThisFrame = false;
 
         if (Status != SignalStatus.NoVehicle)
         {
@@ -38,6 +41,7 @@ public sealed class SignalState
     public bool ShouldSample(string vehicleId, bool isControllable, double dt)
     {
         LostThisFrame = false;
+        RegainedThisFrame = false;
 
         if (!string.Equals(_vehicleId, vehicleId, StringComparison.Ordinal))
         {
@@ -48,6 +52,7 @@ public sealed class SignalState
 
         if (isControllable)
         {
+            RegainedThisFrame = Status == SignalStatus.Lost;
             Status = SignalStatus.Live;
             SecondsSinceLoss = 0.0;
             return true;

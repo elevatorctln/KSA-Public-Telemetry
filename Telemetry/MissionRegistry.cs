@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace KSATelemetryOverlay.Telemetry;
 public sealed class Mission(Int128 key)
 {
@@ -73,7 +75,7 @@ public sealed class MissionRegistry
 
         foreach (KeyValuePair<Int128, double> entry in _epochs)
         {
-            saved[entry.Key.ToString()] = entry.Value;
+            saved[entry.Key.ToString(CultureInfo.InvariantCulture)] = entry.Value;
         }
 
         return saved;
@@ -91,7 +93,7 @@ public sealed class MissionRegistry
 
         foreach (KeyValuePair<string, double> entry in saved)
         {
-            if (Int128.TryParse(entry.Key, out Int128 key))
+            if (Int128.TryParse(entry.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out Int128 key))
             {
                 _epochs[key] = entry.Value;
             }

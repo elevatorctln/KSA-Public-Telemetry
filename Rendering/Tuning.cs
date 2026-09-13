@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 
 namespace KSATelemetryOverlay.Rendering;
@@ -134,7 +135,7 @@ public static class Tuning
 
             builder.Append(field.FieldType == typeof(int)
                 ? $"    public static int {field.Name} = {(int)value};"
-                : $"    public static float {field.Name} = {value:0.####}f;");
+                : $"    public static float {field.Name} = {value.ToString("0.####", CultureInfo.InvariantCulture)}f;");
 
             builder.AppendLine(moved ? "   // changed" : string.Empty);
         }

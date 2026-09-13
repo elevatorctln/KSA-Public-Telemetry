@@ -6,7 +6,8 @@ namespace KSATelemetryOverlay.Rendering;
 
 public sealed class EngineClusterPanel : IOverlayPanel
 {
-    private const float PreferredSize = 145f;
+    // Matches the readout capsules so the pod sits centred in the same row.
+    private const float PreferredSize = ReadoutPanel.CapsuleSize;
     private const float ArcHalfSweep = MathF.PI * 0.75f;
     private float _propellant;
     private bool _initialised;
@@ -160,12 +161,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
         float fillEnd = start + (end - start) * level;
 
-        // not using this anymore, but I want to leave it in for now
-        uint fillColor = level <= 0.10f ? OverlayStyle.ArcFill
-            : level <= 0.25f ? OverlayStyle.ArcFill
-            : OverlayStyle.ArcFill;
-
-        Gfx.Arc(drawList, center, radius, start, fillEnd, fillColor, thickness, opacity);
+        Gfx.Arc(drawList, center, radius, start, fillEnd, OverlayStyle.ArcFill, thickness, opacity);
     }
 
     private void UpdateDotStates(List<EngineSample> engines, double dt)

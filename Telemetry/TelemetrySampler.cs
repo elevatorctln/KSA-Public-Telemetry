@@ -21,6 +21,9 @@ public static class TelemetrySampler
         _missions.Clear();
         _overlapGroup.Clear();
         _burnTimes.Clear();
+        _vehicleCountAllCount = -1;
+        _vehicleCountKey = default;
+        _vehicleCount = 0;
     }
 
     public static void Sample(TelemetrySnapshot snapshot, double dt)
@@ -61,6 +64,9 @@ public static class TelemetrySampler
         SampleEngines(vehicle, snapshot);
         SamplePropellants(vehicle, snapshot);
 
+        double weight = snapshot.TotalMass * snapshot.LocalGravity;
+        snapshot.ThrustToWeight = weight > 0.0 ? (float)(snapshot.Thrust / weight) : 0f;
+
         double now = Universe.GetElapsedSeconds();
         UniverseTime launchTime = vehicle.LaunchGameTime;
 
@@ -87,21 +93,34 @@ public static class TelemetrySampler
         snapshot.ClockEpochInferred = mission.Clock.EpochInferred;
 
         mission.Events.Update(
-            snapshot, mission.Clock.LiftoffThisFrame, dt, CountMissionVehicles(launchTime.Nanoseconds));
+            snapshot,
+            mission.Clock.LiftoffThisFrame,
+            CountMissionVehicles(launchTime.Nanoseconds),
+            _signal.RegainedThisFrame);
         SamplePlannedBurns(vehicle, mission, now);
         snapshot.Events = mission.Events;
     }
     
+    private static int _vehicleCountAllCount = -1;
+    private static Int128 _vehicleCountKey;
+    private static int _vehicleCount;
     private static int CountMissionVehicles(Int128 launchKey)
     {
         CelestialSystem? system = Universe.CurrentSystem;
 
         if (system is null)
         {
+            _vehicleCountAllCount = -1;
             return 0;
         }
 
         LookupCollection<Astronomical> all = system.All;
+
+        if (all.Count == _vehicleCountAllCount && launchKey == _vehicleCountKey)
+        {
+            return _vehicleCount;
+        }
+
         int count = 0;
 
         for (int i = 0; i < all.Count; i++)
@@ -114,6 +133,9 @@ public static class TelemetrySampler
             }
         }
 
+        _vehicleCountAllCount = all.Count;
+        _vehicleCountKey = launchKey;
+        _vehicleCount = count;
         return count;
     }
 
@@ -148,9 +170,11 @@ public static class TelemetrySampler
     {
         snapshot.SurfaceSpeed = vehicle.GetSurfaceSpeed();
         snapshot.OrbitalSpeed = vehicle.GetInertialSpeed();
-        snapshot.Altitude = vehicle.GetRadarAltitude();
-        snapshot.Apoapsis = vehicle.Apoapsis;
-        snapshot.Periapsis = vehicle.Periapsis;
+        double meanRadius = vehicle.Orbit?.Parent?.MeanRadius ?? 0.0;
+        snapshot.Altitude = vehicle.GetBarometricAltitude();
+        snapshot.RadarAltitude = vehicle.GetRadarAltitude();
+        snapshot.Apoapsis = vehicle.Apoapsis - meanRadius;
+        snapshot.Periapsis = vehicle.Periapsis - meanRadius;
         snapshot.GLoad = vehicle.AccelerationBody.Length() / StandardGravity;
 
         snapshot.TotalMass = vehicle.TotalMass;
@@ -171,17 +195,13 @@ public static class TelemetrySampler
 
         snapshot.AmbientPressure = ambientPressure;
         snapshot.AmbientDensity = ambientDensity;
+        snapshot.LocalGravity = (float)gravity;
         snapshot.DynamicPressure = 0.5f * ambientDensity * airspeed * airspeed;
 
         if (snapshot.DynamicPressure > snapshot.MaxDynamicPressure)
         {
             snapshot.MaxDynamicPressure = snapshot.DynamicPressure;
         }
-
-        snapshot.Thrust = vehicle.ComputeActiveThrust(ambientPressure);
-
-        double weight = snapshot.TotalMass * gravity;
-        snapshot.ThrustToWeight = weight > 0.0 ? (float)(snapshot.Thrust / weight) : 0f;
     }
     private static void SampleEngines(Vehicle vehicle, TelemetrySnapshot snapshot)
     {
@@ -191,14 +211,26 @@ public static class TelemetrySampler
             return;
         }
 
-        Span<EngineController> controllers = parts.Modules.Get<EngineController>();
+        if (!ModuleStateful<EngineController, EngineControllerState, EngineControllerGlobalState, EmptyStruct>
+                .TryGetFrom(parts.States, out var controllerStates))
+        {
+            return;
+        }
 
         int activeSequence = parts.SequenceList?.ActiveSequence ?? 0;
         snapshot.PartCount = parts.Count;
 
-        for (int i = 0; i < controllers.Length; i++)
+        float3 centreOfMass = vehicle.TotalMassPropsAsmb.Offset;
+        float ambientPressure = snapshot.AmbientPressure;
+        float totalThrust = 0f;
+
+        var controllerEnumerator = controllerStates.ModulesAndStates.GetEnumerator();
+
+        while (controllerEnumerator.MoveNext())
         {
-            EngineController controller = controllers[i];
+            var entry = controllerEnumerator.Current;
+            EngineController controller = entry.Module;
+            ref readonly EngineControllerState controllerState = ref entry.State;
             bool controllerActive = controller.IsActive;
 
             if (controller.Sequence != 0 && controller.Sequence != activeSequence && !controllerActive)
@@ -212,6 +244,7 @@ public static class TelemetrySampler
                 largestExit = MathF.Max(largestExit, GetMaxExitRadius(controller.Cores[c]));
             }
             float mainEngineThreshold = largestExit * MainNozzleRadiusFraction;
+            float controllerThrottle = 0f;
 
             var coreEnumerator = parts.RocketCores
                 .GetModulesAndStates(controller.Cores.AsSpan())
@@ -221,6 +254,8 @@ public static class TelemetrySampler
             {
                 var core = coreEnumerator.Current;
                 ref readonly RocketCoreState coreState = ref core.State;
+
+                controllerThrottle = MathF.Max(controllerThrottle, coreState.Throttle);
 
                 float exitRadius = GetMaxExitRadius(core.Module);
                 if (largestExit > 0f && exitRadius < mainEngineThreshold)
@@ -249,8 +284,16 @@ public static class TelemetrySampler
 
                 snapshot.Engines.Add(sample);
             }
+
+            if (controllerActive && controllerThrottle > 0f)
+            {
+                totalThrust += controller
+                    .ComputeActivePerformance(in controllerState, centreOfMass, ambientPressure, controllerThrottle)
+                    .ThrustMax.Length();
+            }
         }
 
+        snapshot.Thrust = totalThrust;
         snapshot.TotalEngineCount = snapshot.Engines.Count;
         ComputeSizeFactors(snapshot);
         NormaliseDiagram(snapshot);

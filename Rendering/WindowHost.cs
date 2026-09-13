@@ -7,6 +7,8 @@ public sealed class WindowHost
     private static readonly (string Id, string Title, float2 Size)[] _catalogue = BuildCatalogue();
 
     private readonly List<TelemetryWindow> _windows = [];
+    private readonly List<OverlayWindowState> _states = [];
+    private OverlayConfig? _statesFor;
 
     private TelemetrySnapshot? _snapshot;
     private OverlayConfig? _config;
@@ -138,11 +140,21 @@ public sealed class WindowHost
         const float epsilon = 0.5f;
         bool changed = false;
 
+        if (!ReferenceEquals(_statesFor, config) || _states.Count != _windows.Count)
+        {
+            _states.Clear();
+            for (int i = 0; i < _windows.Count; i++)
+            {
+                string id = _windows[i].PanelId;
+                _states.Add(FindState(config, id) ?? AddState(config, id));
+            }
+            _statesFor = config;
+        }
+
         for (int i = 0; i < _windows.Count; i++)
         {
             TelemetryWindow window = _windows[i];
-
-            OverlayWindowState state = FindState(config, window.PanelId) ?? AddState(config, window.PanelId);
+            OverlayWindowState state = _states[i];
 
             if (state.Open != window.IsShown)
             {

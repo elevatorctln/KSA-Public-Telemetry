@@ -150,7 +150,7 @@ public class TelemetryOverlayMod
 
     private static void HandleHotkeys(OverlayConfig config)
     {
-        if (ImGui.GetIO().WantTextInput)
+        if (ImGui.GetIO().WantTextInput || SettingsUi.IsCapturingKey)
         {
             return;
         }
@@ -190,5 +190,15 @@ public class TelemetryOverlayMod
         _disabled = true;
         Console.WriteLine(
             LogPrefix + $"disabled after {FailureTolerance} consecutive errors while {stage}.");
+
+        // Whatever broke, the player must not be left without the game's own HUD.
+        try
+        {
+            _renderer?.RestoreFlightUi();
+        }
+        catch (Exception restoreEx)
+        {
+            Console.WriteLine(LogPrefix + $"could not restore the flight HUD: {restoreEx.Message}");
+        }
     }
 }

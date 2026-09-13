@@ -19,7 +19,6 @@ public static class Gfx
         drawList.AddRectFilledMultiColor(in min, in max, top, top, bottom, bottom);
     }
 
-    private const float ShelfColumnWidth = 1f;
     private const int FadeStops = 20;
     public static void BottomFade(
         ImDrawListPtr drawList,
@@ -63,6 +62,8 @@ public static class Gfx
         }
     }
 
+    private const int FilletSamples = 12;
+
     public static void ShelfBox(
         ImDrawListPtr drawList,
         float2 viewportPos,
@@ -85,7 +86,6 @@ public static class Gfx
         float direction = onLeft ? 1f : -1f;
         float edgeX = (onLeft ? viewportPos.X : viewportPos.X + viewportSize.X)
             - direction * slideOffset;
-        float kneeX = edgeX + direction * flatWidth;
 
         float radius = MathF.Max(cornerRadius, 0.01f);
         float Drop(float past)
@@ -100,92 +100,53 @@ public static class Gfx
                 : slope * (past - radius * 0.5f);
         }
 
-        uint Tone(float t)
+        float filletDrop = Drop(radius);
+        float runEnd = height <= filletDrop
+            ? MathF.Sqrt(2f * radius * height / slope)
+            : radius * 0.5f + height / slope;
+
+        Span<float2> points = stackalloc float2[FilletSamples + 4];
+        int n = 0;
+
+        points[n++] = new float2(edgeX, bottom);
+        points[n++] = new float2(edgeX, top);
+
+        float filletEnd = MathF.Min(radius, runEnd);
+        for (int i = 0; i <= FilletSamples; i++)
         {
-            float f = 1f - Math.Clamp(t, 0f, 1f) * (1f - Tuning.ShelfFloorFraction);
-            return OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity * f);
+            float past = filletEnd * i / FilletSamples;
+            points[n++] = new float2(
+                edgeX + direction * (flatWidth + past),
+                MathF.Min(top + Drop(past), bottom));
         }
 
-        uint bottomColor = Tone(1f);
-
-        float flatRun = MathF.Floor(flatWidth);
-
+        if (runEnd > filletEnd)
         {
-            float snappedTop = MathF.Floor(top);
-            float coverage = 1f - (top - snappedTop);
-
-            float fa = edgeX;
-            float fb = edgeX + direction * flatRun;
-            float fx0 = MathF.Min(fa, fb);
-            float fx1 = MathF.Max(fa, fb);
-
-            if (coverage > 0.01f && coverage < 0.99f)
-            {
-                float2 edgeMin = new(fx0, snappedTop);
-                float2 edgeMax = new(fx1, snappedTop + 1f);
-
-                drawList.AddRectFilled(in edgeMin, in edgeMax,
-                    OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity * coverage), 0f);
-            }
-
-            float fillTop = snappedTop + 1f;
-            if (fillTop < bottom)
-            {
-                uint topColor = Tone((fillTop - top) / height);
-
-                float2 min = new(fx0, fillTop);
-                float2 max = new(fx1, bottom);
-
-                drawList.AddRectFilledMultiColor(in min, in max, topColor, topColor, bottomColor, bottomColor);
-            }
+            points[n++] = new float2(edgeX + direction * (flatWidth + runEnd), bottom);
         }
 
-        float totalRun = flatWidth + height / slope + radius * 0.5f;
-        float step = MathF.Max(ShelfColumnWidth, 1f);
-
-        for (float offset = flatRun; offset < totalRun; offset += step)
+        if (!onLeft)
         {
-            float span = MathF.Min(step, totalRun - offset);
-            float centre = offset + span * 0.5f;
+            points[..n].Reverse();
+        }
 
-            float columnTop = top + Drop(centre - flatWidth);
-            if (columnTop >= bottom)
-            {
-                break;
-            }
+        int vertexStart = drawList.VtxBuffer.Count;
+        drawList.AddConvexPolyFilled(points[..n], OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity));
+        int vertexEnd = drawList.VtxBuffer.Count;
 
-            float xa = edgeX + direction * offset;
-            float xb = edgeX + direction * (offset + span);
+        float floorFraction = Math.Clamp(Tuning.ShelfFloorFraction, 0f, 1f);
+        Span<ImDrawVert> vertices = drawList.VtxBuffer.Span;
 
-            float x0 = MathF.Min(xa, xb);
-            float x1 = MathF.Max(xa, xb);
-
-            float snapped = MathF.Floor(columnTop);
-            float coverage = 1f - (columnTop - snapped);
-
-            if (coverage > 0.01f && coverage < 0.99f)
-            {
-                float2 edgeMin = new(x0, snapped);
-                float2 edgeMax = new(x1, snapped + 1f);
-
-                drawList.AddRectFilled(in edgeMin, in edgeMax,
-                    OverlayStyle.WithOpacity(OverlayStyle.ShelfBox, opacity * coverage), 0f);
-            }
-
-            float fillTop = snapped + 1f;
-            if (fillTop >= bottom)
-            {
-                continue;
-            }
-
-            uint topColor = Tone((fillTop - top) / height);
-
-            float2 min = new(x0, fillTop);
-            float2 max = new(x1, bottom);
-
-            drawList.AddRectFilledMultiColor(in min, in max, topColor, topColor, bottomColor, bottomColor);
+        for (int i = vertexStart; i < vertexEnd; i++)
+        {
+            ref ImDrawVert vertex = ref vertices[i];
+            float t = Math.Clamp((vertex.pos.Y - top) / height, 0f, 1f);
+            float fade = 1f - t * (1f - floorFraction);
+            uint alpha = (uint)(((vertex.col >> 24) & 0xFFu) * fade);
+            vertex.col = (vertex.col & 0x00FFFFFFu) | (alpha << 24);
         }
     }
+
     public static void FadedTrack(
         ImDrawListPtr drawList,
         float left,
@@ -196,39 +157,43 @@ public static class Gfx
         uint beforeColor,
         uint afterColor,
         float fadeWidth,
-        float opacity,
-        int segments = 72)
+        float opacity)
     {
         float span = right - left;
-        if (span <= 0f || segments < 1)
+        if (span <= 0f || thickness <= 0f)
         {
             return;
         }
 
-        float step = span / segments;
+        fadeWidth = Math.Clamp(fadeWidth, 0f, span * 0.5f);
 
-        for (int i = 0; i < segments; i++)
+        Span<float> stops = [left, left + fadeWidth, Math.Clamp(splitX, left, right), right - fadeWidth, right];
+        stops.Sort();
+
+        float halfThickness = thickness * 0.5f;
+
+        float AlphaAt(float x) => fadeWidth > 0f
+            ? Math.Clamp(MathF.Min(x - left, right - x) / fadeWidth, 0f, 1f)
+            : 1f;
+
+        for (int i = 0; i + 1 < stops.Length; i++)
         {
-            float x0 = left + step * i;
-            float x1 = x0 + step;
-            float centre = (x0 + x1) * 0.5f;
+            float x0 = stops[i];
+            float x1 = stops[i + 1];
 
-            float distanceToEnd = MathF.Min(centre - left, right - centre);
-            float edgeFade = fadeWidth > 0f
-                ? Math.Clamp(distanceToEnd / fadeWidth, 0f, 1f)
-                : 1f;
-
-            if (edgeFade <= 0f)
+            if (x1 - x0 <= 0f)
             {
                 continue;
             }
 
-            float2 a = new(x0, y);
-            float2 b = new(x1 + 0.5f, y);
+            uint color = (x0 + x1) * 0.5f <= splitX ? beforeColor : afterColor;
+            uint c0 = OverlayStyle.WithOpacity(color, opacity * AlphaAt(x0));
+            uint c1 = OverlayStyle.WithOpacity(color, opacity * AlphaAt(x1));
 
-            drawList.AddLine(in a, in b,
-                OverlayStyle.WithOpacity(centre <= splitX ? beforeColor : afterColor, opacity * edgeFade),
-                thickness);
+            float2 min = new(x0, y - halfThickness);
+            float2 max = new(x1, y + halfThickness);
+
+            drawList.AddRectFilledMultiColor(in min, in max, c0, c1, c1, c0);
         }
     }
 
@@ -336,30 +301,16 @@ public static class Gfx
         drawList.AddText(in pos, OverlayStyle.WithOpacity(color, opacity), text);
     }
 
-    public static bool PushFont(ImFontPtr? font, float sizePixels)
-    {
-        if (!font.HasValue)
-        {
-            return false;
-        }
+    public static void PushFont(ImFontPtr? font, float sizePixels)
+        => ImGui.PushFont(font ?? default, sizePixels);
 
-        ImGui.PushFont(font.Value, sizePixels);
-        return true;
-    }
-
-    public static void PopFont(bool pushed)
-    {
-        if (pushed)
-        {
-            ImGui.PopFont();
-        }
-    }
+    public static void PopFont() => ImGui.PopFont();
 
     public static float2 MeasureWithFont(ImFontPtr? font, float sizePixels, ReadOnlySpan<char> text)
     {
-        bool pushed = PushFont(font, sizePixels);
+        PushFont(font, sizePixels);
         float2 size = ImGui.CalcTextSize(text);
-        PopFont(pushed);
+        PopFont();
         return size;
     }
 
@@ -373,10 +324,10 @@ public static class Gfx
         ReadOnlySpan<char> text,
         float opacity)
     {
-        bool pushed = PushFont(font, sizePixels);
+        PushFont(font, sizePixels);
         float width = ImGui.CalcTextSize(text).X;
         Text(drawList, new float2(centerX - width * 0.5f, y), color, text, opacity);
-        PopFont(pushed);
+        PopFont();
     }
 
     public static void TextFont(
@@ -388,9 +339,75 @@ public static class Gfx
         ReadOnlySpan<char> text,
         float opacity)
     {
-        bool pushed = PushFont(font, sizePixels);
+        PushFont(font, sizePixels);
         Text(drawList, pos, color, text, opacity);
-        PopFont(pushed);
+        PopFont();
+    }
+
+    private static float DigitCellWidth()
+    {
+        float widest = 0f;
+        Span<char> digit = stackalloc char[1];
+
+        for (char c = '0'; c <= '9'; c++)
+        {
+            digit[0] = c;
+            widest = MathF.Max(widest, ImGui.CalcTextSize(digit).X);
+        }
+
+        return widest;
+    }
+
+    public static float2 MeasureTabular(ImFontPtr? font, float sizePixels, ReadOnlySpan<char> text)
+    {
+        PushFont(font, sizePixels);
+
+        float cell = DigitCellWidth();
+        float width = 0f;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            width += char.IsAsciiDigit(text[i]) ? cell : ImGui.CalcTextSize(text.Slice(i, 1)).X;
+        }
+
+        float height = ImGui.CalcTextSize(text).Y;
+        PopFont();
+
+        return new float2(width, height);
+    }
+
+    public static void TextTabular(
+        ImDrawListPtr drawList,
+        ImFontPtr? font,
+        float sizePixels,
+        float2 pos,
+        uint color,
+        ReadOnlySpan<char> text,
+        float opacity)
+    {
+        PushFont(font, sizePixels);
+
+        float cell = DigitCellWidth();
+        float x = pos.X;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            ReadOnlySpan<char> glyph = text.Slice(i, 1);
+            float advance = ImGui.CalcTextSize(glyph).X;
+
+            if (char.IsAsciiDigit(text[i]))
+            {
+                Text(drawList, new float2(x + (cell - advance) * 0.5f, pos.Y), color, glyph, opacity);
+                x += cell;
+            }
+            else
+            {
+                Text(drawList, new float2(x, pos.Y), color, glyph, opacity);
+                x += advance;
+            }
+        }
+
+        PopFont();
     }
 
     public static void Arc(

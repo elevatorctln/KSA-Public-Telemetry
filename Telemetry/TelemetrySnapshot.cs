@@ -44,6 +44,7 @@ public sealed class TelemetrySnapshot
     public double OrbitalSpeed;
     public double VerticalSpeed;
     public double Altitude;
+    public double RadarAltitude;
     public double Apoapsis;
     public double Periapsis;
     public double GLoad;
@@ -51,6 +52,7 @@ public sealed class TelemetrySnapshot
     public float PropellantMass;
     public float Thrust;
     public float ThrustToWeight;
+    public float LocalGravity;
     public float AmbientPressure;
     public float AmbientDensity;
     public float DynamicPressure;
@@ -76,8 +78,8 @@ public sealed class TelemetrySnapshot
         Signal = SignalStatus.NoVehicle;
         IsFrozen = false;
         VehicleName = string.Empty;
-        SurfaceSpeed = OrbitalSpeed = VerticalSpeed = Altitude = Apoapsis = Periapsis = GLoad = 0;
-        TotalMass = PropellantMass = Thrust = ThrustToWeight = 0f;
+        SurfaceSpeed = OrbitalSpeed = VerticalSpeed = Altitude = RadarAltitude = Apoapsis = Periapsis = GLoad = 0;
+        TotalMass = PropellantMass = Thrust = ThrustToWeight = LocalGravity = 0f;
         PropellantFraction = PropellantCapacity = 0f;
         AmbientPressure = AmbientDensity = DynamicPressure = 0f;
         Engines.Clear();
