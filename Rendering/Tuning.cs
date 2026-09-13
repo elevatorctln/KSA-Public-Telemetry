@@ -47,6 +47,8 @@ public static class Tuning
     public static float PanelEdgeMarginX = 40f;
     public static float PanelEdgeMarginY = 18f;
     public static float PanelGap = 8f;
+    public static float SignalNoticeGap = 10f;
+    public static float SignalNoticeFadeSeconds = 0.25f;
 
     // engine diagram
     public static float EnvelopeMargin = 3.4f;

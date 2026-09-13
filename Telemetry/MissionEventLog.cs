@@ -17,6 +17,7 @@ public sealed class MissionEventLog
     private int _previousBurning;
     private int _previousPartCount;
     private int _previousVehicleCount = -1;
+    private int _previousRadialDecouplers = -1;
 
     private bool _liftoffFired;
     private bool _maxQFired;
@@ -44,6 +45,7 @@ public sealed class MissionEventLog
         _previousBurning = 0;
         _previousPartCount = 0;
         _previousVehicleCount = -1;
+        _previousRadialDecouplers = -1;
 
         _liftoffFired = false;
         _maxQFired = false;
@@ -72,7 +74,11 @@ public sealed class MissionEventLog
         bool gainedVehicle = _previousVehicleCount >= 0 && missionVehicleCount > _previousVehicleCount;
         _previousVehicleCount = missionVehicleCount;
 
-        DetectStaging(gainedVehicle, flying, now);
+        int radial = snapshot.AttachedRadialDecouplers;
+        bool releasedRadial = _previousRadialDecouplers >= 0 && radial < _previousRadialDecouplers;
+        _previousRadialDecouplers = radial;
+
+        DetectStaging(gainedVehicle, releasedRadial, flying, now);
 
         bool sameVehicle = string.Equals(_baselineVehicle, snapshot.VehicleName, StringComparison.Ordinal);
 
@@ -101,7 +107,7 @@ public sealed class MissionEventLog
         }
 
         DetectMaxQ(snapshot, flying, now);
-        DetectStaging(parts < _previousPartCount, flying, now);
+        DetectStaging(parts < _previousPartCount, releasedRadial, flying, now);
         DetectCutoff(burning, flying, now, endingRunLength);
 
         _previousBurning = burning;
@@ -131,7 +137,7 @@ public sealed class MissionEventLog
         }
     }
 
-    private void DetectStaging(bool separated, bool flying, double now)
+    private void DetectStaging(bool separated, bool radial, bool flying, double now)
     {
         if (!flying || !separated)
         {
@@ -144,7 +150,9 @@ public sealed class MissionEventLog
         }
 
         _lastStageSepTime = now;
-        Record(new MissionEvent(MissionEventKind.StageSep, now));
+
+        Record(new MissionEvent(
+            radial ? MissionEventKind.BoosterSep : MissionEventKind.StageSep, now));
     }
 
     private void DetectCutoff(int burning, bool flying, double now, double endingRunLength)

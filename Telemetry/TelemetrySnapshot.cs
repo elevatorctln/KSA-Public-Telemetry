@@ -63,6 +63,13 @@ public sealed class TelemetrySnapshot
     public int BurningEngineCount;
     public int TotalEngineCount;
     public int PartCount;
+
+    /// <summary>
+    /// Decouplers still holding something on that sever a SURFACE connector, which
+    /// is what a radial decoupler is. When this falls the thing that came off was
+    /// strapped to the side rather than stacked on the end.
+    /// </summary>
+    public int AttachedRadialDecouplers;
     public bool HasLaunched;
     public double LaunchUniverseSeconds;
     public bool ClockEpochInferred;
@@ -85,6 +92,7 @@ public sealed class TelemetrySnapshot
         Engines.Clear();
         BurningEngineCount = TotalEngineCount = 0;
         PartCount = 0;
+        AttachedRadialDecouplers = 0;
         HasLaunched = false;
         LaunchUniverseSeconds = 0;
         ClockEpochInferred = false;

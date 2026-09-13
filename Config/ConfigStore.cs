@@ -107,11 +107,6 @@ public static class ConfigStore
         }
     }
 
-    /// <summary>
-    /// The enum-typed settings are the ones that stop deserialising when a member is
-    /// renamed. On failure they are dropped one at a time and the rest is retried, so
-    /// a stale key name costs that one setting rather than every window position.
-    /// </summary>
     private static readonly string[] _fragileSettings =
         ["ToggleKey", "SettingsKey", "LeftSlots", "RightSlots", "Windows", "MissionEpochs"];
 
@@ -205,6 +200,10 @@ public static class ConfigStore
             config.SmoothingSeconds, OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing);
         config.TimelineWindowSeconds = Math.Clamp(
             config.TimelineWindowSeconds, OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow);
+        config.FreezeAtToleranceFraction = Math.Clamp(
+            config.FreezeAtToleranceFraction,
+            OverlayConfig.MinFreezeTolerance,
+            OverlayConfig.MaxFreezeTolerance);
 
         config.LeftSlots = SanitiseSlots(config.LeftSlots, [ReadoutKind.Speed, ReadoutKind.Altitude]);
         config.RightSlots = SanitiseSlots(config.RightSlots, [ReadoutKind.GForce]);

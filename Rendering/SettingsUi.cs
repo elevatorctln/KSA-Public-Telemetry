@@ -94,6 +94,13 @@ public static class SettingsUi
         ImGui.SeparatorText("Overlay"u8);
         changed |= ImGui.Checkbox("Enabled"u8, ref config.Enabled);
         changed |= ImGui.Checkbox("Hide the game flight HUD"u8, ref config.ReplaceFlightUi);
+        changed |= ImGui.Checkbox("Stay visible when F2 hides the UI"u8, ref config.ShowWhenGameUiHidden);
+
+        if (!HiddenUiPatch.Installed)
+        {
+            ImGui.TextDisabled("F2 will hide the overlay too:"u8);
+            ImGui.TextDisabled(HiddenUiPatch.Failure ?? "the hook did not install");
+        }
         changed |= ImGui.Checkbox("Backdrop band"u8, ref config.ShowBackdrop);
         changed |= ImGui.Checkbox("Hide while on rails"u8, ref config.HideOnRails);
         changed |= ImGui.Checkbox("Status when no vehicle"u8, ref config.ShowStatusWhenIdle);
@@ -128,6 +135,14 @@ public static class SettingsUi
         ImGui.SetNextItemWidth(160f);
         changed |= ImGui.SliderFloat("Timeline window"u8, ref config.TimelineWindowSeconds,
             OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow, "%.0f s"u8);
+
+        ImGui.SeparatorText("Signal loss"u8);
+        ImGui.SetNextItemWidth(160f);
+        changed |= ImGui.SliderFloat("Freeze at load"u8, ref config.FreezeAtToleranceFraction,
+            OverlayConfig.MinFreezeTolerance, OverlayConfig.MaxFreezeTolerance, "%.2f"u8);
+        ImGui.TextDisabled("Freezes once g-load or dynamic pressure reaches this much of"u8);
+        ImGui.TextDisabled("what the vehicle can take, so the last values are from before"u8);
+        ImGui.TextDisabled("it came apart. 1.00 waits for the breakup itself."u8);
 
         ImGui.SeparatorText("Mission name"u8);
         if (_missionName is { } buffer)
@@ -233,7 +248,6 @@ public static class SettingsUi
 
     private static ImGuiKey PollPressedKey()
     {
-        // Keyboard keys only: Tab through Oem102. Gamepad and mouse ranges follow.
         for (ImGuiKey key = ImGuiKey.NamedKey_BEGIN; key <= ImGuiKey.Oem102; key++)
         {
             if (Array.IndexOf(_modifierKeys, key) >= 0)

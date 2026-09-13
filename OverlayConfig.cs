@@ -22,12 +22,14 @@ public sealed class OverlayConfig
     public ImGuiKey ToggleKey = ImGuiKey.KeypadDecimal;
     public ImGuiKey SettingsKey = ImGuiKey.KeypadDivide;
     public bool ReplaceFlightUi = true;
+    public bool ShowWhenGameUiHidden = true;
     public string? MissionName = null;
 
     // presentation
     public float Scale = 0.83f;
     public float Opacity = 1f;
     public float SmoothingSeconds = 0.12f;
+    public float FreezeAtToleranceFraction = 0.95f;
     public float TimelineWindowSeconds = 240f;
 
     // readout slots
@@ -47,6 +49,7 @@ public sealed class OverlayConfig
     public const float MinOpacity = 0.1f, MaxOpacity = 1f;
     public const float MinSmoothing = 0f, MaxSmoothing = 1f;
     public const float MinTimelineWindow = 60f, MaxTimelineWindow = 1800f;
+    public const float MinFreezeTolerance = 0.1f, MaxFreezeTolerance = 1f;
 }
 
 public sealed class OverlayWindowState

@@ -12,6 +12,7 @@ public sealed class OverlayRenderer
     private readonly FlightUiController _flightUi = new();
     private readonly IntroAnimator _intro = new();
     private bool _wasVisible;
+    private float _signalNotice;
     private readonly EngineClusterPanel _enginePod = new();
     private readonly MissionClockPanel _missionClock = new();
     private readonly TimelinePanel _timeline = new();
@@ -125,9 +126,12 @@ public sealed class OverlayRenderer
             new float2(viewport.WorkPos.X, viewport.WorkPos.Y + topInset),
             new float2(viewport.WorkSize.X, viewport.WorkSize.Y - topInset));
 
-        if (snapshot.IsFrozen)
+        float fade = (float)(dt / MathF.Max(Tuning.SignalNoticeFadeSeconds, 0.01f));
+        _signalNotice = Math.Clamp(_signalNotice + (snapshot.IsFrozen ? fade : -fade), 0f, 1f);
+
+        if (_signalNotice > 0.001f)
         {
-            DrawSignalLostBanner(drawList, viewport.Pos, viewport.Size);
+            DrawSignalNotice(drawList, viewport, _config.Opacity * _signalNotice);
         }
     }
     private static bool LayoutWindowOpen()
@@ -208,26 +212,37 @@ public sealed class OverlayRenderer
             Tuning.MinBoxFlatWidth * scale);
     }
 
-    private void DrawSignalLostBanner(ImDrawListPtr drawList, float2 viewportPos, float2 viewportSize)
+    private void DrawSignalNotice(ImDrawListPtr drawList, ImGuiViewportPtr viewport, float alpha)
     {
-        ReadOnlySpan<char> text = "SIGNAL LOST".AsSpan();
+        ReadOnlySpan<char> text = "Please wait for acquisition of signal".AsSpan();
 
-        float size = OverlayFonts.BodySize * _config.Scale;
-        float2 textSize = Gfx.MeasureWithFont(OverlayFonts.Body, size, text);
+        float scale = _config.Scale;
+        float size = OverlayFonts.BodySize * scale;
+        float2 extent = Gfx.MeasureWithFont(OverlayFonts.Body, size, text);
+        float padX = NotificationPanel.BannerPadX * scale;
+        float padY = NotificationPanel.BannerPadY * scale;
+        float notch = NotificationPanel.BannerNotch * scale;
+        float width = padX * 2f + notch + extent.X;
+        float height = extent.Y + padY * 2f;
+        float left = viewport.Pos.X + Tuning.PanelEdgeMarginX * scale;
+        float bottom = viewport.Pos.Y + viewport.Size.Y
+            - (Tuning.BoxHeight + Tuning.SignalNoticeGap) * scale;
+        float top = bottom - height;
 
-        float centerX = viewportPos.X + viewportSize.X * 0.5f;
-        float y = viewportPos.Y + viewportSize.Y * 0.12f;
+        Span<float2> shape =
+        [
+            new(left, top),
+            new(left + width, top),
+            new(left + width - notch, bottom),
+            new(left, bottom),
+        ];
 
-        float padX = 14f * _config.Scale;
-        float padY = 6f * _config.Scale;
+        drawList.AddConvexPolyFilled(
+            shape, OverlayStyle.WithOpacity(OverlayStyle.PanelBackground, alpha));
 
-        float2 min = new(centerX - textSize.X * 0.5f - padX, y - padY);
-        float2 max = new(centerX + textSize.X * 0.5f + padX, y + textSize.Y + padY);
-
-        Gfx.Panel(drawList, min, max, _config.Opacity);
-        Gfx.TextCenteredFont(
-            drawList, OverlayFonts.Body, size, centerX, y,
-            OverlayStyle.Critical, text, _config.Opacity);
+        Gfx.TextFont(
+            drawList, OverlayFonts.Body, size,
+            new float2(left + padX, top + padY), OverlayStyle.TextMuted, text, alpha);
     }
 
     private void DrawIdleStatus()

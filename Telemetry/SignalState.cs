@@ -37,8 +37,24 @@ public sealed class SignalState
             _vehicleId = string.Empty;
         }
     }
+    public void MarkLost(string vehicleId, double dt)
+    {
+        LostThisFrame = false;
+        RegainedThisFrame = false;
 
-    public bool ShouldSample(string vehicleId, bool isControllable, double dt)
+        _vehicleId = vehicleId;
+
+        if (Status == SignalStatus.Lost)
+        {
+            SecondsSinceLoss += dt;
+            return;
+        }
+
+        Status = SignalStatus.Lost;
+        SecondsSinceLoss = 0.0;
+        LostThisFrame = true;
+    }
+    public bool ShouldSample(string vehicleId, bool isControllable, bool failureImminent, double dt)
     {
         LostThisFrame = false;
         RegainedThisFrame = false;
@@ -50,7 +66,7 @@ public sealed class SignalState
             SecondsSinceLoss = 0.0;
         }
 
-        if (isControllable)
+        if (isControllable && !failureImminent)
         {
             RegainedThisFrame = Status == SignalStatus.Lost;
             Status = SignalStatus.Live;

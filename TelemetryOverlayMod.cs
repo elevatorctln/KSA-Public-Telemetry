@@ -43,6 +43,11 @@ public class TelemetryOverlayMod
         {
             _config = ConfigStore.Load();
             TelemetrySampler.Missions.ApplyEpochs(_config.MissionEpochs);
+            HiddenUiPatch.Install(DrawWhileGameUiHidden);
+
+            Console.WriteLine(LogPrefix + (HiddenUiPatch.Installed
+                ? "overlay will stay up when the game UI is hidden."
+                : $"overlay will hide with the game UI: {HiddenUiPatch.Failure}."));
             _renderer = new OverlayRenderer(_config);
             SettingsUi.Bind(_config, _windows);
             TuningUi.Bind(_renderer);
@@ -67,7 +72,8 @@ public class TelemetryOverlayMod
 
         try
         {
-            TelemetrySampler.Sample(_snapshot, dtPlayer);
+            TelemetrySampler.Sample(_snapshot, _config, dtPlayer);
+            HiddenUiPatch.RecordDelta(dtPlayer);
             Succeeded();
         }
         catch (Exception ex)
@@ -77,7 +83,19 @@ public class TelemetryOverlayMod
     }
 
     [StarMapAfterGui]
-    public void OnAfterGui(double dt)
+    public void OnAfterGui(double dt) => DrawEverything(dt, gameUiHidden: false);
+
+    private void DrawWhileGameUiHidden(double dt)
+    {
+        if (_config is null || !_config.ShowWhenGameUiHidden)
+        {
+            return;
+        }
+
+        DrawEverything(dt, gameUiHidden: true);
+    }
+
+    private void DrawEverything(double dt, bool gameUiHidden)
     {
         if (_disabled || _config is null || _renderer is null)
         {
@@ -101,8 +119,11 @@ public class TelemetryOverlayMod
 
             _renderer.Draw(_snapshot, dt);
 
-            SettingsUi.DrawFallbackWindow();
-            TuningUi.Draw();
+            if (!gameUiHidden)
+            {
+                SettingsUi.DrawFallbackWindow();
+                TuningUi.Draw();
+            }
 
             if (_windows.CaptureInto(_config))
             {
@@ -191,7 +212,6 @@ public class TelemetryOverlayMod
         Console.WriteLine(
             LogPrefix + $"disabled after {FailureTolerance} consecutive errors while {stage}.");
 
-        // Whatever broke, the player must not be left without the game's own HUD.
         try
         {
             _renderer?.RestoreFlightUi();

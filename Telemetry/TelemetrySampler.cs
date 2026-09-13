@@ -9,6 +9,7 @@ public static class TelemetrySampler
     private const double StandardGravity = 9.80665;
     private const float NominalThrottleThreshold = 0.95f;
     private static string _lastVehicleId = string.Empty;
+    private static bool _wreckHold;
     private static readonly SignalState _signal = new();
     private static readonly MissionRegistry _missions = new();
     private static readonly List<double> _burnTimes = new(8);
@@ -17,6 +18,7 @@ public static class TelemetrySampler
     public static void Reset()
     {
         _lastVehicleId = string.Empty;
+        _wreckHold = false;
         _signal.Reset();
         _missions.Clear();
         _overlapGroup.Clear();
@@ -26,24 +28,42 @@ public static class TelemetrySampler
         _vehicleCount = 0;
     }
 
-    public static void Sample(TelemetrySnapshot snapshot, double dt)
+    public static void Sample(TelemetrySnapshot snapshot, OverlayConfig config, double dt)
     {
         Vehicle? vehicle = Program.ControlledVehicle;
-        if (vehicle is null || vehicle.IsDisposed)
+
+        bool unavailable = vehicle is null || vehicle.IsDisposed;
+
+        TrackingDecision decision = DecideTracking(
+            holdingFrame: snapshot.HasVehicle,
+            vehicleUnavailable: unavailable,
+            trackedGone: unavailable && TrackedVehicleIsGone(),
+            isControllable: !unavailable && vehicle!.IsControllable,
+            wreckHold: _wreckHold);
+
+        _wreckHold = decision.WreckHold;
+
+        if (decision.Action == TrackingAction.Clear)
         {
-            snapshot.Clear();
-            _lastVehicleId = string.Empty;
-            _signal.SetNoVehicle();
+            ClearTracking(snapshot);
             return;
         }
 
-        if (!string.Equals(_lastVehicleId, vehicle.Id, StringComparison.Ordinal))
+        if (decision.Action == TrackingAction.Hold)
+        {
+            HoldLastFrame(snapshot, dt);
+            return;
+        }
+
+        if (!string.Equals(_lastVehicleId, vehicle!.Id, StringComparison.Ordinal))
         {
             _lastVehicleId = vehicle.Id;
             snapshot.ResetRecords();
         }
 
-        if (!_signal.ShouldSample(vehicle.Id, vehicle.IsControllable, dt))
+        bool failureImminent = ToleranceFraction(vehicle) >= config.FreezeAtToleranceFraction;
+
+        if (!_signal.ShouldSample(vehicle.Id, vehicle.IsControllable, failureImminent, dt))
         {
             snapshot.Signal = _signal.Status;
             snapshot.IsFrozen = true;
@@ -62,6 +82,7 @@ public static class TelemetrySampler
 
         SampleKinematics(vehicle, snapshot);
         SampleEngines(vehicle, snapshot);
+        SampleDecouplers(vehicle, snapshot);
         SamplePropellants(vehicle, snapshot);
 
         double weight = snapshot.TotalMass * snapshot.LocalGravity;
@@ -101,6 +122,71 @@ public static class TelemetrySampler
         snapshot.Events = mission.Events;
     }
     
+    public enum TrackingAction : byte
+    {
+        Clear,
+        Hold,
+        Sample,
+    }
+
+    public readonly record struct TrackingDecision(TrackingAction Action, bool WreckHold);
+
+    public static TrackingDecision DecideTracking(
+        bool holdingFrame,
+        bool vehicleUnavailable,
+        bool trackedGone,
+        bool isControllable,
+        bool wreckHold)
+    {
+        if (vehicleUnavailable)
+        {
+            return holdingFrame && (wreckHold || trackedGone)
+                ? new TrackingDecision(TrackingAction.Hold, true)
+                : new TrackingDecision(TrackingAction.Clear, false);
+        }
+
+        if (wreckHold && !isControllable && holdingFrame)
+        {
+            return new TrackingDecision(TrackingAction.Hold, true);
+        }
+
+        return new TrackingDecision(TrackingAction.Sample, false);
+    }
+
+    private static bool TrackedVehicleIsGone()
+    {
+        if (_lastVehicleId.Length == 0)
+        {
+            return false;
+        }
+
+        CelestialSystem? system = Universe.CurrentSystem;
+
+        return system is not null && !system.All.TryGet(_lastVehicleId, out Astronomical? _);
+    }
+
+    private static void HoldLastFrame(TelemetrySnapshot snapshot, double dt)
+    {
+        _signal.MarkLost(_lastVehicleId, dt);
+        snapshot.Signal = _signal.Status;
+        snapshot.IsFrozen = true;
+    }
+
+    private static void ClearTracking(TelemetrySnapshot snapshot)
+    {
+        snapshot.Clear();
+        _lastVehicleId = string.Empty;
+        _wreckHold = false;
+        _signal.SetNoVehicle();
+    }
+
+    private static double ToleranceFraction(Vehicle vehicle)
+    {
+        ref readonly StructuralLoad load = ref vehicle.StructuralLoad;
+
+        return Math.Max(load.GLoadFraction, load.DynamicPressureFraction);
+    }
+
     private static int _vehicleCountAllCount = -1;
     private static Int128 _vehicleCountKey;
     private static int _vehicleCount;
@@ -203,6 +289,35 @@ public static class TelemetrySampler
             snapshot.MaxDynamicPressure = snapshot.DynamicPressure;
         }
     }
+
+    private static void SampleDecouplers(Vehicle vehicle, TelemetrySnapshot snapshot)
+    {
+        PartTree parts = vehicle.Parts;
+
+        if (parts is null)
+        {
+            return;
+        }
+
+        const Part.Connector.Flag surface =
+            Part.Connector.Flag.ToSurface | Part.Connector.Flag.FromSurface;
+
+        Span<Decoupler> decouplers = parts.Modules.Get<Decoupler>();
+        int attached = 0;
+
+        for (int i = 0; i < decouplers.Length; i++)
+        {
+            Part.Connector connector = decouplers[i].Connector;
+
+            if (connector.Connection is not null && (connector.Flags & surface) != 0)
+            {
+                attached++;
+            }
+        }
+
+        snapshot.AttachedRadialDecouplers = attached;
+    }
+
     private static void SampleEngines(Vehicle vehicle, TelemetrySnapshot snapshot)
     {
         PartTree parts = vehicle.Parts;

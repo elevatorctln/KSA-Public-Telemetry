@@ -97,6 +97,8 @@ public static class TuningUi
             changed |= Slider("Menu bar clearance", ref Tuning.MenuBarClearance, 0f, 80f, "%.0f"u8);
             changed |= Slider("Knee gap", ref Tuning.BoxPadding, 0f, 120f, "%.0f"u8);
             changed |= Slider("Panel gap", ref Tuning.PanelGap, 0f, 60f, "%.0f"u8);
+            changed |= Slider("Signal notice gap", ref Tuning.SignalNoticeGap, 0f, 120f, "%.0f"u8);
+            changed |= Slider("Signal notice fade s", ref Tuning.SignalNoticeFadeSeconds, 0.02f, 1.5f);
         }
 
         if (ImGui.CollapsingHeader("Backdrop and shelves"u8))
