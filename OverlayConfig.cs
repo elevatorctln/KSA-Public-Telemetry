@@ -9,6 +9,13 @@ public sealed class OverlayConfig
     public bool Enabled = false;
     public bool ShowTelemetryBar = true;
     public bool ShowEngineDiagram = true;
+
+    /// <summary>
+    /// Spins the engine dots inside the diagram, in degrees anticlockwise. Purely a
+    /// drawing transform: rotation preserves the distances between dots, so neither
+    /// the packing radius nor the ring grouping of the pop-in is affected.
+    /// </summary>
+    public float EngineDiagramRotation = 0f;
     public bool ShowPropellants = true;
     public bool ShowMissionClock = true;
     public bool ShowTimeline = true;
@@ -50,6 +57,7 @@ public sealed class OverlayConfig
     public const float MinSmoothing = 0f, MaxSmoothing = 1f;
     public const float MinTimelineWindow = 60f, MaxTimelineWindow = 1800f;
     public const float MinFreezeTolerance = 0.1f, MaxFreezeTolerance = 1f;
+    public const float MinEngineRotation = 0f, MaxEngineRotation = 360f;
 }
 
 public sealed class OverlayWindowState

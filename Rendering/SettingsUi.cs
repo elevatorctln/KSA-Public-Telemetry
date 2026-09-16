@@ -112,6 +112,9 @@ public static class SettingsUi
         ImGui.SeparatorText("Elements"u8);
         changed |= ImGui.Checkbox("Readouts"u8, ref config.ShowTelemetryBar);
         changed |= ImGui.Checkbox("Engine diagram"u8, ref config.ShowEngineDiagram);
+        ImGui.SetNextItemWidth(160f);
+        changed |= ImGui.SliderFloat("Diagram rotation"u8, ref config.EngineDiagramRotation,
+            OverlayConfig.MinEngineRotation, OverlayConfig.MaxEngineRotation, "%.0f deg"u8);
         changed |= ImGui.Checkbox("Propellant arc"u8, ref config.ShowPropellants);
         changed |= ImGui.Checkbox("Mission clock"u8, ref config.ShowMissionClock);
         changed |= ImGui.Checkbox("Timeline"u8, ref config.ShowTimeline);

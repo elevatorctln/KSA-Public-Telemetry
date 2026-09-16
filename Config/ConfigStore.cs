@@ -200,6 +200,10 @@ public static class ConfigStore
             config.SmoothingSeconds, OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing);
         config.TimelineWindowSeconds = Math.Clamp(
             config.TimelineWindowSeconds, OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow);
+        config.EngineDiagramRotation = Math.Clamp(
+            config.EngineDiagramRotation,
+            OverlayConfig.MinEngineRotation,
+            OverlayConfig.MaxEngineRotation);
         config.FreezeAtToleranceFraction = Math.Clamp(
             config.FreezeAtToleranceFraction,
             OverlayConfig.MinFreezeTolerance,

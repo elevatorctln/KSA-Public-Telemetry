@@ -115,7 +115,9 @@ public sealed class EngineClusterPanel : IOverlayPanel
                 drawList, center, arcRadius, arcThickness, gaugeOpacity, intro.ArcSweep);
         }
 
-        DrawEngines(drawList, center, diagramRadius, dotOpacity, scale, intro.Readouts);
+        DrawEngines(
+            drawList, center, diagramRadius, dotOpacity, scale, intro.Readouts,
+            context.Config.EngineDiagramRotation);
     }
 
     private void UpdateSmoothing(TelemetrySnapshot snapshot, double dt, OverlayConfig config)
@@ -287,7 +289,8 @@ public sealed class EngineClusterPanel : IOverlayPanel
         float radius,
         float opacity,
         float scale,
-        float introPhase)
+        float introPhase,
+        float rotationDegrees)
     {
         bool retracting = _swap == SwapPhase.Out;
         DotSet set = retracting ? _outgoing : _live;
@@ -323,6 +326,13 @@ public sealed class EngineClusterPanel : IOverlayPanel
         plotRadius *= Tuning.ClusterFillFraction;
         float baseDotRadius = MathF.Max(set.Normalised * plotRadius, Tuning.MinDotRadius * scale);
 
+        // Diagram space has +Y upwards - it is negated on the way to the screen - so a
+        // positive angle reads anticlockwise to the player. Solved once for the frame
+        // rather than per dot.
+        float rotation = rotationDegrees * (MathF.PI / 180f);
+        float rotationSin = MathF.Sin(rotation);
+        float rotationCos = MathF.Cos(rotation);
+
         for (int i = 0; i < set.Count; i++)
         {
             float local = Math.Clamp(
@@ -338,9 +348,15 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
             float2 offset = set.Offsets[i];
 
+            // Rotated at draw time rather than baked into the set, so the slider
+            // turns the dots on the spot and a swap's outgoing set turns with them
+            // instead of hanging at the angle it was adopted at.
+            float rotatedX = offset.X * rotationCos - offset.Y * rotationSin;
+            float rotatedY = offset.X * rotationSin + offset.Y * rotationCos;
+
             float2 pos = new(
-                center.X + offset.X * plotRadius,
-                center.Y - offset.Y * plotRadius);
+                center.X + rotatedX * plotRadius,
+                center.Y - rotatedY * plotRadius);
 
             uint color = set.Colors[i];
 
