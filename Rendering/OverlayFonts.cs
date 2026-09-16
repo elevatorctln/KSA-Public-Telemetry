@@ -63,13 +63,7 @@ public static class OverlayFonts
 
     private static unsafe ImFontPtr Load(ImFontAtlasPtr atlas, string path, float sizePixels)
     {
-        // Zeroed with `default` rather than `new()` on purpose. ImFontConfig is a
-        // struct, and Brutal used to give it an explicit parameterless constructor -
-        // which makes `new()` compile to a newobj CALL on that constructor. KSA
-        // 2026.9.13 dropped it, so a mod built against the older Brutal died at load
-        // with "Method not found: Void ImFontConfig..ctor()". `default` emits initobj
-        // and calls nothing, so it works either way. Nothing is lost: that
-        // constructor only ever assigned every field its zero value.
+
         ImFontConfig config = default;
 
         config.OversampleH = 3;
