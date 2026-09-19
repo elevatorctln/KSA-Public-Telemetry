@@ -13,6 +13,7 @@ public sealed class TimelinePanel : IOverlayPanel
     private const float DotRadius = 3.5f;
     private const float EndFadeFraction = 0.16f;
     private const float MinLabelAlpha = 0.35f;
+    private const float MinLeaderShift = 4f;
     private readonly List<MissionEvent> _visible = new(16);
 
     private static readonly IComparer<MissionEvent> TimeOrder = new MissionTimeComparer();
@@ -142,36 +143,47 @@ public sealed class TimelinePanel : IOverlayPanel
                 OverlayStyle.WithOpacity(trackColor, alpha), 12);
 
             float2 extent = Gfx.MeasureWithFont(OverlayFonts.Label, labelSize, e.Label);
-            float labelLeft = x - extent.X * 0.5f;
+            float centred = x - extent.X * 0.5f;
+            int chosen = row;
+            float placed = float.MaxValue;
 
-            int chosen = -1;
-            for (int attempt = 0; attempt < 2; attempt++)
+            for (int attempt = 0; attempt < rowCursor.Length; attempt++)
             {
-                int candidate = (row + attempt) % 2;
-                if (labelLeft >= rowCursor[candidate] + minGap)
+                int candidate = (row + attempt) % rowCursor.Length;
+                float shifted = MathF.Max(centred, rowCursor[candidate] + minGap);
+
+                if (shifted < placed)
                 {
+                    placed = shifted;
                     chosen = candidate;
-                    break;
                 }
             }
 
-            if (chosen < 0)
-            {
-                continue;
-            }
+            placed = Math.Clamp(placed, left, MathF.Max(left, left + size.X - extent.X));
 
-            rowCursor[chosen] = labelLeft + extent.X;
-            row = (chosen + 1) % 2;
+            rowCursor[chosen] = placed + extent.X;
+            row = (chosen + 1) % rowCursor.Length;
 
             float labelY = chosen == 0
                 ? trackY - labelOffset - extent.Y
                 : trackY + labelOffset;
 
             uint color = e.IsPrediction ? OverlayStyle.TextDim : OverlayStyle.TextPrimary;
+            float labelCentre = placed + extent.X * 0.5f;
+            float leaderAt = MathF.Max(extent.X * 0.5f, MinLeaderShift * scale);
+
+            if (MathF.Abs(labelCentre - x) > leaderAt)
+            {
+                float2 from = new(x, trackY + (chosen == 0 ? -labelOffset * 0.4f : labelOffset * 0.4f));
+                float2 to = new(labelCentre, chosen == 0 ? labelY + extent.Y : labelY);
+
+                drawList.AddLine(in from, in to,
+                    OverlayStyle.WithOpacity(OverlayStyle.Hairline, alpha), MathF.Max(1f, scale));
+            }
 
             Gfx.TextCenteredFont(
                 drawList, OverlayFonts.Label, labelSize,
-                x, labelY, color, e.Label, alpha);
+                labelCentre, labelY, color, e.Label, alpha);
         }
     }
 }

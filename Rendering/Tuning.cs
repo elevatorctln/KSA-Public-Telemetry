@@ -10,6 +10,7 @@ public static class Tuning
 {
     // intro sequence animation
     public static float IntroTimeScale = 1.994f;
+    public static float OutroSeconds = 0.9f;
     public static float BackdropStart = 0.149f;
     public static float BackdropDuration = 0.641f;
     public static int BackdropDecay = 3;

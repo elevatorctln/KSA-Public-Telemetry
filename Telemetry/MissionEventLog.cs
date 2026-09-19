@@ -5,6 +5,10 @@ public sealed class MissionEventLog
     private const double MinBurnBeforeCutoff = 1.0;
     private const double CutoffDebounce = 2.0;
     private const double StageSepDebounce = 2.0;
+    private const double IgnitionDebounce = 2.0;
+    private const double LandingDebounce = 2.0;
+    private const double LandingBurnAltitude = 10_000.0;
+    private const double LandingVerticalSpeed = 3.0;
     private const float MinMeaningfulQ = 1_000f;
     private const float MaxQConfirmFraction = 0.95f;
 
@@ -21,10 +25,15 @@ public sealed class MissionEventLog
 
     private bool _liftoffFired;
     private bool _maxQFired;
+    private bool _secondStageIgnitionFired;
+    private bool _previousContact;
     private int _cutoffCount;
+    private string _cutoffVehicle = string.Empty;
     private double _burnStartedAt = double.NegativeInfinity;
     private double _lastCutoffTime = double.NegativeInfinity;
     private double _lastStageSepTime = double.NegativeInfinity;
+    private double _lastIgnitionTime = double.NegativeInfinity;
+    private double _lastLandingTime = double.NegativeInfinity;
 
     private float _peakQ;
     private double _peakQTime;
@@ -49,11 +58,16 @@ public sealed class MissionEventLog
 
         _liftoffFired = false;
         _maxQFired = false;
+        _secondStageIgnitionFired = false;
+        _previousContact = false;
         _cutoffCount = 0;
+        _cutoffVehicle = string.Empty;
 
         _burnStartedAt = double.NegativeInfinity;
         _lastCutoffTime = double.NegativeInfinity;
         _lastStageSepTime = double.NegativeInfinity;
+        _lastIgnitionTime = double.NegativeInfinity;
+        _lastLandingTime = double.NegativeInfinity;
 
         _peakQ = 0f;
         _peakQTime = 0.0;
@@ -87,6 +101,7 @@ public sealed class MissionEventLog
             _baselineVehicle = snapshot.VehicleName;
             _previousBurning = burning;
             _previousPartCount = parts;
+            _previousContact = snapshot.HasSurfaceContact;
             _burnStartedAt = burning > 0 ? now - MinBurnBeforeCutoff : double.NegativeInfinity;
             return;
         }
@@ -108,10 +123,13 @@ public sealed class MissionEventLog
 
         DetectMaxQ(snapshot, flying, now);
         DetectStaging(parts < _previousPartCount, releasedRadial, flying, now);
-        DetectCutoff(burning, flying, now, endingRunLength);
+        DetectIgnition(snapshot, burning, flying, now);
+        DetectCutoff(snapshot, burning, flying, now, endingRunLength);
+        DetectLanding(snapshot, flying, now);
 
         _previousBurning = burning;
         _previousPartCount = parts;
+        _previousContact = snapshot.HasSurfaceContact;
     }
 
     private void DetectMaxQ(TelemetrySnapshot snapshot, bool flying, double now)
@@ -155,7 +173,59 @@ public sealed class MissionEventLog
             radial ? MissionEventKind.BoosterSep : MissionEventKind.StageSep, now));
     }
 
-    private void DetectCutoff(int burning, bool flying, double now, double endingRunLength)
+    private void DetectIgnition(TelemetrySnapshot snapshot, int burning, bool flying, double now)
+    {
+        if (!flying || burning == 0 || _previousBurning > 0 || _cutoffCount == 0)
+        {
+            return;
+        }
+
+        if (now - _lastIgnitionTime < IgnitionDebounce)
+        {
+            return;
+        }
+
+        _lastIgnitionTime = now;
+
+        bool sameVehicle = string.Equals(
+            _cutoffVehicle, snapshot.VehicleName, StringComparison.Ordinal);
+
+        if (!sameVehicle && !_secondStageIgnitionFired)
+        {
+            _secondStageIgnitionFired = true;
+            Record(new MissionEvent(MissionEventKind.SecondStageIgnition, now));
+            return;
+        }
+
+        bool landing = snapshot.VerticalSpeed < 0.0 && snapshot.RadarAltitude < LandingBurnAltitude;
+
+        Record(new MissionEvent(
+            landing ? MissionEventKind.LandingBurn : MissionEventKind.Ignition, now));
+    }
+
+    private void DetectLanding(TelemetrySnapshot snapshot, bool flying, double now)
+    {
+        if (!flying || !snapshot.HasSurfaceContact || _previousContact)
+        {
+            return;
+        }
+
+        if (Math.Abs(snapshot.VerticalSpeed) >= LandingVerticalSpeed)
+        {
+            return;
+        }
+
+        if (now - _lastLandingTime < LandingDebounce)
+        {
+            return;
+        }
+
+        _lastLandingTime = now;
+        Record(new MissionEvent(MissionEventKind.Landing, now));
+    }
+
+    private void DetectCutoff(
+        TelemetrySnapshot snapshot, int burning, bool flying, double now, double endingRunLength)
     {
         if (!flying || burning > 0 || _previousBurning == 0)
         {
@@ -168,6 +238,7 @@ public sealed class MissionEventLog
         }
 
         _lastCutoffTime = now;
+        _cutoffVehicle = snapshot.VehicleName;
 
         MissionEventKind kind = _cutoffCount switch
         {

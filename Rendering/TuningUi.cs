@@ -70,6 +70,7 @@ public static class TuningUi
         {
             ImGui.TextDisabled("Stage starts and lengths are in seconds, before the scale."u8);
             changed |= Slider("Time scale", ref Tuning.IntroTimeScale, 0.25f, 3f);
+            changed |= Slider("Outro seconds", ref Tuning.OutroSeconds, 0.1f, 3f);
             changed |= Slider("Shelf slide px", ref Tuning.ShelfSlideDistance, 0f, 500f, "%.0f"u8);
             changed |= Slider("Shelf slide lag", ref Tuning.ShelfSlideEase, 0.1f, 2f);
 

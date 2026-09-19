@@ -57,8 +57,6 @@ public static class ConfigStore
                 return config;
             }
 
-            // Each section is read on its own so a bad value in one (a renamed enum
-            // member, a hand-edit gone wrong) cannot take the others down with it.
             JsonObject? root = JsonNode.Parse(File.ReadAllText(path), documentOptions: new JsonDocumentOptions
             {
                 AllowTrailingCommas = true,
@@ -108,7 +106,8 @@ public static class ConfigStore
     }
 
     private static readonly string[] _fragileSettings =
-        ["ToggleKey", "SettingsKey", "LeftSlots", "RightSlots", "Windows", "MissionEpochs"];
+        ["ToggleKey", "SettingsKey", "LeftSlots", "RightSlots", "Windows", "MissionEpochs",
+         "MutedNotifications", "SpeedReference", "CountdownKey", "MissionOrigins"];
 
     private static OverlayConfig? LoadSettings(JsonNode? node)
     {
@@ -200,6 +199,14 @@ public static class ConfigStore
             config.SmoothingSeconds, OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing);
         config.TimelineWindowSeconds = Math.Clamp(
             config.TimelineWindowSeconds, OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow);
+        config.CountdownSeconds = Math.Clamp(
+            config.CountdownSeconds, OverlayConfig.MinCountdown, OverlayConfig.MaxCountdown);
+        config.SpeedArcFullScale = Math.Clamp(
+            config.SpeedArcFullScale, OverlayConfig.MinSpeedArc, OverlayConfig.MaxSpeedArc);
+        config.AltitudeArcFullScaleKm = Math.Clamp(
+            config.AltitudeArcFullScaleKm, OverlayConfig.MinAltitudeArc, OverlayConfig.MaxAltitudeArc);
+        config.GForceArcFullScale = Math.Clamp(
+            config.GForceArcFullScale, OverlayConfig.MinGForceArc, OverlayConfig.MaxGForceArc);
         config.EngineDiagramRotation = Math.Clamp(
             config.EngineDiagramRotation,
             OverlayConfig.MinEngineRotation,
@@ -221,6 +228,8 @@ public static class ConfigStore
         config.Windows.RemoveAll(static w => w is null || string.IsNullOrEmpty(w.Id));
 
         config.MissionEpochs ??= [];
+        config.MissionOrigins ??= [];
+        config.MutedNotifications ??= [];
     }
 
     private static ReadoutKind[] SanitiseSlots(ReadoutKind[]? slots, ReadoutKind[] fallback)

@@ -46,8 +46,10 @@ public sealed class MissionClockPanel : IOverlayPanel
 
         Span<char> buffer = stackalloc char[16];
         ReadOnlySpan<char> time = Format.MissionTime(buffer, context.Snapshot.MissionElapsedSeconds);
+        bool countingUp = context.Snapshot.MissionElapsedSeconds >= 0.0
+            && (context.Snapshot.HasLiftoff || context.Snapshot.CountingDown);
 
-        ReadOnlySpan<char> prefix = context.Snapshot.HasLiftoff ? "T+".AsSpan() : "T-".AsSpan();
+        ReadOnlySpan<char> prefix = countingUp ? "T+".AsSpan() : "T-".AsSpan();
 
         float2 timeSize = Gfx.MeasureTabular(OverlayFonts.Numeric, numericSize, time);
         float2 prefixSize = Gfx.MeasureWithFont(OverlayFonts.Body, bodySize, prefix);

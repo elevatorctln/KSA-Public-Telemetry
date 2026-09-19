@@ -42,7 +42,7 @@ public class TelemetryOverlayMod
         try
         {
             _config = ConfigStore.Load();
-            TelemetrySampler.Missions.ApplyEpochs(_config.MissionEpochs);
+            TelemetrySampler.Missions.ApplyEpochs(_config.MissionEpochs, _config.MissionOrigins);
             HiddenUiPatch.Install(DrawWhileGameUiHidden);
 
             Console.WriteLine(LogPrefix + (HiddenUiPatch.Installed
@@ -133,6 +133,7 @@ public class TelemetryOverlayMod
             if (TelemetrySampler.Missions.EpochsChanged)
             {
                 _config.MissionEpochs = TelemetrySampler.Missions.CaptureEpochs();
+                _config.MissionOrigins = TelemetrySampler.Missions.CaptureOrigins();
                 ConfigStore.MarkDirty();
             }
 
@@ -185,6 +186,18 @@ public class TelemetryOverlayMod
         if (ImGui.IsKeyPressed(config.SettingsKey, repeat: false))
         {
             SettingsUi.ToggleWindow();
+        }
+
+        if (ImGui.IsKeyPressed(config.CountdownKey, repeat: false))
+        {
+            if (TelemetrySampler.IsCountingDown)
+            {
+                TelemetrySampler.CancelCountdown();
+            }
+            else
+            {
+                TelemetrySampler.StartCountdown(config.CountdownSeconds);
+            }
         }
     }
 

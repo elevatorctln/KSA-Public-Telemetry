@@ -6,7 +6,6 @@ namespace KSATelemetryOverlay.Rendering;
 
 public sealed class EngineClusterPanel : IOverlayPanel
 {
-    // Matches the readout capsules so the pod sits centred in the same row.
     private const float PreferredSize = ReadoutPanel.CapsuleSize;
     private const float ArcHalfSweep = MathF.PI * 0.75f;
     private float _propellant;

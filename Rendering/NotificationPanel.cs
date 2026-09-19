@@ -45,7 +45,7 @@ public sealed class NotificationPanel : IOverlayPanel
         _seenCount = 0;
         _seenGeneration = -1;
     }
-    public void Update(TelemetrySnapshot snapshot, double dt)
+    public void Update(TelemetrySnapshot snapshot, OverlayConfig config, double dt)
     {
         MissionEventLog? log = snapshot.Events;
 
@@ -71,7 +71,10 @@ public sealed class NotificationPanel : IOverlayPanel
 
         for (int i = _seenCount; i < recorded.Count; i++)
         {
-            if (recorded[i].DeservesCallout)
+            // Muting only silences the banner. The event is still recorded and the
+            // timeline still draws it, which is the point of the setting.
+            if (recorded[i].DeservesCallout
+                && !config.MutedNotifications.Contains(recorded[i].Kind))
             {
                 _entries.Add(new Entry(recorded[i]));
             }

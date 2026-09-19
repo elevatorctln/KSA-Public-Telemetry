@@ -54,6 +54,7 @@ public sealed class TelemetrySnapshot
     public float ThrustToWeight;
     public float LocalGravity;
     public float AmbientPressure;
+    public bool AboveAtmosphere;
     public float AmbientDensity;
     public float DynamicPressure;
     public float MaxDynamicPressure;
@@ -63,16 +64,12 @@ public sealed class TelemetrySnapshot
     public int BurningEngineCount;
     public int TotalEngineCount;
     public int PartCount;
-
-    /// <summary>
-    /// Decouplers still holding something on that sever a SURFACE connector, which
-    /// is what a radial decoupler is. When this falls the thing that came off was
-    /// strapped to the side rather than stacked on the end.
-    /// </summary>
     public int AttachedRadialDecouplers;
     public bool HasLaunched;
     public double LaunchUniverseSeconds;
     public bool ClockEpochInferred;
+    public bool CountingDown;
+    public double Downrange = double.NaN;
     public MissionEventLog? Events;
     public void Clear()
     {
@@ -89,6 +86,7 @@ public sealed class TelemetrySnapshot
         TotalMass = PropellantMass = Thrust = ThrustToWeight = LocalGravity = 0f;
         PropellantFraction = PropellantCapacity = 0f;
         AmbientPressure = AmbientDensity = DynamicPressure = 0f;
+        AboveAtmosphere = false;
         Engines.Clear();
         BurningEngineCount = TotalEngineCount = 0;
         PartCount = 0;
@@ -96,6 +94,8 @@ public sealed class TelemetrySnapshot
         HasLaunched = false;
         LaunchUniverseSeconds = 0;
         ClockEpochInferred = false;
+        CountingDown = false;
+        Downrange = double.NaN;
         Events = null;
     }
 

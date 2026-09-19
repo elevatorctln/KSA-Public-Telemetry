@@ -12,6 +12,7 @@ public sealed class OverlayRenderer
     private readonly FlightUiController _flightUi = new();
     private readonly IntroAnimator _intro = new();
     private bool _wasVisible;
+    private bool _outroActive;
     private float _signalNotice;
     private readonly EngineClusterPanel _enginePod = new();
     private readonly MissionClockPanel _missionClock = new();
@@ -62,41 +63,56 @@ public sealed class OverlayRenderer
             RebuildPanels();
         }
 
-        _notifications.Update(snapshot, dt);
+        _notifications.Update(snapshot, _config, dt);
 
         bool overlayVisible = _config.Enabled
             && snapshot.HasVehicle
             && !(_config.HideOnRails && snapshot.OnRails);
 
-        _flightUi.SetHidden(overlayVisible && _config.ReplaceFlightUi && !LayoutWindowOpen());
-
         if (overlayVisible && !_wasVisible)
         {
+            // Coming back mid-outro just plays on from where it had retracted to.
             _intro.Restart();
+            _outroActive = false;
+        }
+        else if (!overlayVisible && _wasVisible && snapshot.HasVehicle)
+        {
+            // Only worth playing out while there is still something valid to draw.
+            // Losing the vehicle entirely has nothing to retract, and a breakup is
+            // already held frozen by the signal path.
+            _intro.Reverse();
+            _outroActive = true;
         }
 
         _wasVisible = overlayVisible;
 
-        if (overlayVisible)
+        if (overlayVisible || _outroActive)
         {
             _intro.Update(dt);
         }
 
-        if (!_config.Enabled)
+        if (_outroActive && _intro.IsHidden)
         {
-            return;
+            _outroActive = false;
         }
+
+        // The game HUD waits for the outro to finish, so the two never overlap.
+        _flightUi.SetHidden(
+            (overlayVisible || _outroActive) && _config.ReplaceFlightUi && !LayoutWindowOpen());
 
         if (!snapshot.HasVehicle)
         {
-            if (_config.ShowStatusWhenIdle)
+            _outroActive = false;
+
+            if (_config.Enabled && _config.ShowStatusWhenIdle)
             {
                 DrawIdleStatus();
             }
+
             return;
         }
 
-        if (_config.HideOnRails && snapshot.OnRails)
+        if (!overlayVisible && !_outroActive)
         {
             return;
         }

@@ -1,6 +1,7 @@
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using KSATelemetryOverlay.Config;
+using KSATelemetryOverlay.Telemetry;
 
 namespace KSATelemetryOverlay.Rendering;
 
@@ -11,7 +12,7 @@ public static class SettingsUi
     private static WindowHost? _windows;
     private static ImInputString? _missionName;
     private static bool _windowOpen;
-    private enum KeySlot : byte { None, Toggle, Settings }
+    private enum KeySlot : byte { None, Toggle, Settings, Countdown }
     private static KeySlot _capturing;
     public static bool IsCapturingKey => _capturing != KeySlot.None;
 
@@ -87,70 +88,26 @@ public static class SettingsUi
 
     public static void ToggleWindow() => _windowOpen = !_windowOpen;
 
+    private static bool Category(ImString label, bool inMenu)
+        => inMenu ? ImGui.BeginMenu(label) : ImGui.CollapsingHeader(label);
+
+    private static void EndCategory(bool inMenu)
+    {
+        if (inMenu)
+        {
+            ImGui.EndMenu();
+        }
+    }
+
     private static void DrawContent(OverlayConfig config, bool inMenu)
     {
         bool changed = false;
 
-        ImGui.SeparatorText("Overlay"u8);
-        changed |= ImGui.Checkbox("Enabled"u8, ref config.Enabled);
-        changed |= ImGui.Checkbox("Hide the game flight HUD"u8, ref config.ReplaceFlightUi);
-        changed |= ImGui.Checkbox("Stay visible when F2 hides the UI"u8, ref config.ShowWhenGameUiHidden);
-
-        if (!HiddenUiPatch.Installed)
-        {
-            ImGui.TextDisabled("F2 will hide the overlay too:"u8);
-            ImGui.TextDisabled(HiddenUiPatch.Failure ?? "the hook did not install");
-        }
-        changed |= ImGui.Checkbox("Backdrop band"u8, ref config.ShowBackdrop);
-        changed |= ImGui.Checkbox("Hide while on rails"u8, ref config.HideOnRails);
-        changed |= ImGui.Checkbox("Status when no vehicle"u8, ref config.ShowStatusWhenIdle);
-
-        ImGui.SeparatorText("Hotkeys"u8);
-        changed |= DrawKeyBinding("Toggle overlay"u8, ref config.ToggleKey, KeySlot.Toggle);
-        changed |= DrawKeyBinding("Open settings"u8, ref config.SettingsKey, KeySlot.Settings);
-
-        ImGui.SeparatorText("Elements"u8);
-        changed |= ImGui.Checkbox("Readouts"u8, ref config.ShowTelemetryBar);
-        changed |= ImGui.Checkbox("Engine diagram"u8, ref config.ShowEngineDiagram);
-        ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Diagram rotation"u8, ref config.EngineDiagramRotation,
-            OverlayConfig.MinEngineRotation, OverlayConfig.MaxEngineRotation, "%.0f deg"u8);
-        changed |= ImGui.Checkbox("Propellant arc"u8, ref config.ShowPropellants);
-        changed |= ImGui.Checkbox("Mission clock"u8, ref config.ShowMissionClock);
-        changed |= ImGui.Checkbox("Timeline"u8, ref config.ShowTimeline);
-        changed |= ImGui.Checkbox("Event Notifications"u8, ref config.ShowNotifications);
-        changed |= ImGui.Checkbox("Terrain-relative altitude"u8, ref config.TerrainRelativeAltitude);
-
-        ImGui.SeparatorText("Readout slots"u8);
-        changed |= DrawSlotEditor("Left"u8, "left", ref config.LeftSlots, config);
-        changed |= DrawSlotEditor("Right"u8, "right", ref config.RightSlots, config);
-
-        ImGui.SeparatorText("Presentation"u8);
-        ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Scale"u8, ref config.Scale,
-            OverlayConfig.MinScale, OverlayConfig.MaxScale, "%.2f"u8);
-        ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Opacity"u8, ref config.Opacity,
-            OverlayConfig.MinOpacity, OverlayConfig.MaxOpacity, "%.2f"u8);
-        ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Smoothing"u8, ref config.SmoothingSeconds,
-            OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing, "%.2f s"u8);
-        ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Timeline window"u8, ref config.TimelineWindowSeconds,
-            OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow, "%.0f s"u8);
-
-        ImGui.SeparatorText("Signal loss"u8);
-        ImGui.SetNextItemWidth(160f);
-        changed |= ImGui.SliderFloat("Freeze at load"u8, ref config.FreezeAtToleranceFraction,
-            OverlayConfig.MinFreezeTolerance, OverlayConfig.MaxFreezeTolerance, "%.2f"u8);
-        ImGui.TextDisabled("Freezes once g-load or dynamic pressure reaches this much of"u8);
-        ImGui.TextDisabled("what the vehicle can take, so the last values are from before"u8);
-        ImGui.TextDisabled("it came apart. 1.00 waits for the breakup itself."u8);
-
-        ImGui.SeparatorText("Mission name"u8);
         if (_missionName is { } buffer)
         {
+            ImGui.Text("Mission name"u8);
             ImGui.SetNextItemWidth(200f);
+
             if (ImGui.InputText("##missionName"u8, buffer))
             {
                 string typed = buffer.ToString();
@@ -161,53 +118,251 @@ public static class SettingsUi
             ImGui.TextDisabled("Blank uses the vehicle name."u8);
         }
 
-        ImGui.SeparatorText("Standalone windows"u8);
-        if (inMenu)
+        changed |= DrawCountdown(config);
+        changed |= ImGui.Checkbox("Enabled"u8, ref config.Enabled);
+        changed |= ImGui.Checkbox("Hide the game flight HUD"u8, ref config.ReplaceFlightUi);
+        changed |= ImGui.Checkbox("Stay visible when F2 hides the UI"u8, ref config.ShowWhenGameUiHidden);
+
+        if (!HiddenUiPatch.Installed)
         {
-            if (ImGui.BeginMenu("Open windows"u8))
-            {
-                DrawWindowToggles();
-                ImGui.EndMenu();
-            }
+            ImGui.TextDisabled("F2 will hide the overlay too:"u8);
+            ImGui.TextDisabled(HiddenUiPatch.Failure ?? "the hook did not install");
         }
-        else
+
+        ImGui.Separator();
+
+        if (Category("Elements"u8, inMenu))
+        {
+            changed |= ImGui.Checkbox("Readouts"u8, ref config.ShowTelemetryBar);
+            changed |= ImGui.Checkbox("Engine diagram"u8, ref config.ShowEngineDiagram);
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Diagram rotation"u8, ref config.EngineDiagramRotation,
+                OverlayConfig.MinEngineRotation, OverlayConfig.MaxEngineRotation, "%.0f deg"u8);
+            changed |= ImGui.Checkbox("Propellant arc"u8, ref config.ShowPropellants);
+            changed |= ImGui.Checkbox("Mission clock"u8, ref config.ShowMissionClock);
+            changed |= ImGui.Checkbox("Timeline"u8, ref config.ShowTimeline);
+            changed |= ImGui.Checkbox("Event Notifications"u8, ref config.ShowNotifications);
+            changed |= ImGui.Checkbox("Backdrop band"u8, ref config.ShowBackdrop);
+            EndCategory(inMenu);
+        }
+
+        if (Category("Readouts"u8, inMenu))
+        {
+            changed |= DrawSlotEditor("Left"u8, "left", ref config.LeftSlots, config);
+            changed |= DrawSlotEditor("Right"u8, "right", ref config.RightSlots, config);
+            changed |= DrawSpeedReference(config);
+            changed |= ImGui.Checkbox("Terrain-relative altitude"u8, ref config.TerrainRelativeAltitude);
+
+            ImGui.TextDisabled("Arc full scales"u8);
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Speed"u8, ref config.SpeedArcFullScale,
+                OverlayConfig.MinSpeedArc, OverlayConfig.MaxSpeedArc, "%.0f m/s"u8);
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Altitude"u8, ref config.AltitudeArcFullScaleKm,
+                OverlayConfig.MinAltitudeArc, OverlayConfig.MaxAltitudeArc, "%.0f km"u8);
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("G-force"u8, ref config.GForceArcFullScale,
+                OverlayConfig.MinGForceArc, OverlayConfig.MaxGForceArc, "%.1f g"u8);
+            EndCategory(inMenu);
+        }
+
+        if (Category("Events"u8, inMenu))
+        {
+            ImGui.TextDisabled("Announce as a callout"u8);
+            changed |= DrawNotificationToggles(config);
+            ImGui.Separator();
+
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Timeline window"u8, ref config.TimelineWindowSeconds,
+                OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow, "%.0f s"u8);
+            EndCategory(inMenu);
+        }
+
+        if (Category("Appearance"u8, inMenu))
+        {
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Scale"u8, ref config.Scale,
+                OverlayConfig.MinScale, OverlayConfig.MaxScale, "%.2f"u8);
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Opacity"u8, ref config.Opacity,
+                OverlayConfig.MinOpacity, OverlayConfig.MaxOpacity, "%.2f"u8);
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Smoothing"u8, ref config.SmoothingSeconds,
+                OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing, "%.2f s"u8);
+
+            if (inMenu)
+            {
+                if (ImGui.BeginMenu("Colours"u8))
+                {
+                    changed |= DrawColorEditors();
+                    ImGui.EndMenu();
+                }
+            }
+            else
+            {
+                ImGui.SeparatorText("Colours"u8);
+                changed |= DrawColorEditors();
+            }
+
+            EndCategory(inMenu);
+        }
+
+        if (Category("Behaviour"u8, inMenu))
+        {
+            changed |= DrawKeyBinding("Toggle overlay"u8, ref config.ToggleKey, KeySlot.Toggle);
+            changed |= DrawKeyBinding("Open settings"u8, ref config.SettingsKey, KeySlot.Settings);
+            changed |= DrawKeyBinding("Start countdown"u8, ref config.CountdownKey, KeySlot.Countdown);
+            changed |= ImGui.Checkbox("Hide while on rails"u8, ref config.HideOnRails);
+            changed |= ImGui.Checkbox("Status when no vehicle"u8, ref config.ShowStatusWhenIdle);
+
+            ImGui.SetNextItemWidth(160f);
+            changed |= ImGui.SliderFloat("Freeze at load"u8, ref config.FreezeAtToleranceFraction,
+                OverlayConfig.MinFreezeTolerance, OverlayConfig.MaxFreezeTolerance, "%.2f"u8);
+            ImGui.TextDisabled("Freezes once g-load or dynamic pressure reaches this much of"u8);
+            ImGui.TextDisabled("what the vehicle can take, so the last values are from before"u8);
+            ImGui.TextDisabled("it came apart. 1.00 waits for the breakup itself."u8);
+            EndCategory(inMenu);
+        }
+
+        if (Category("Windows"u8, inMenu))
         {
             DrawWindowToggles();
+            EndCategory(inMenu);
         }
 
-        if (inMenu)
+        if (Category("Advanced"u8, inMenu))
         {
-            if (ImGui.BeginMenu("Colours"u8))
+            bool tuning = TuningUi.IsOpen;
+            if (ImGui.Checkbox("Visual tuning window"u8, ref tuning))
             {
-                changed |= DrawColorEditors();
-                ImGui.EndMenu();
+                TuningUi.SetOpen(tuning);
             }
-        }
-        else
-        {
-            ImGui.SeparatorText("Colours"u8);
-            changed |= DrawColorEditors();
-        }
 
-        ImGui.SeparatorText("Developer"u8);
-        bool tuning = TuningUi.IsOpen;
-        if (ImGui.Checkbox("Visual tuning window"u8, ref tuning))
-        {
-            TuningUi.SetOpen(tuning);
-        }
+            if (ImGui.SmallButton("Save now"u8))
+            {
+                ConfigStore.SaveNow();
+            }
 
-        ImGui.SeparatorText("Config"u8);
-        if (ImGui.SmallButton("Save now"u8))
-        {
-            ConfigStore.SaveNow();
+            ImGui.TextDisabled(ConfigStore.FilePath);
+            EndCategory(inMenu);
         }
-
-        ImGui.TextDisabled(ConfigStore.FilePath);
 
         if (changed)
         {
             ConfigStore.MarkDirty();
         }
+    }
+
+    private static bool DrawCountdown(OverlayConfig config)
+    {
+        bool changed = false;
+
+        ImGui.SetNextItemWidth(100f);
+        changed |= ImGui.SliderFloat("##countdownSeconds"u8, ref config.CountdownSeconds,
+            OverlayConfig.MinCountdown, OverlayConfig.MaxCountdown, "T-%.0f s"u8);
+
+        ImGui.SameLine();
+
+        bool counting = TelemetrySampler.IsCountingDown;
+
+        if (!TelemetrySampler.CanCountDown)
+        {
+            ImGui.BeginDisabled();
+            ImGui.SmallButton("Start"u8);
+            ImGui.EndDisabled();
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Needs a vehicle that has not lifted off yet."u8);
+            }
+
+            return changed;
+        }
+
+        if (ImGui.SmallButton(counting ? "Cancel"u8 : "Start"u8))
+        {
+            if (counting)
+            {
+                TelemetrySampler.CancelCountdown();
+            }
+            else
+            {
+                TelemetrySampler.StartCountdown(config.CountdownSeconds);
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool DrawSpeedReference(OverlayConfig config)
+    {
+        bool changed = false;
+
+        ImGui.SetNextItemWidth(160f);
+
+        if (!ImGui.BeginCombo("Speed reference"u8, SpeedReferenceLabel(config.SpeedReference)))
+        {
+            return false;
+        }
+
+        foreach (SpeedReference reference in Enum.GetValues<SpeedReference>())
+        {
+            if (ImGui.Selectable(SpeedReferenceLabel(reference), reference == config.SpeedReference))
+            {
+                config.SpeedReference = reference;
+                changed = true;
+            }
+        }
+
+        ImGui.EndCombo();
+        return changed;
+    }
+
+    private static ReadOnlySpan<char> SpeedReferenceLabel(SpeedReference reference) => reference switch
+    {
+        SpeedReference.Orbital => "Orbital".AsSpan(),
+        SpeedReference.Auto    => "Auto (orbital above atmosphere)".AsSpan(),
+        _                      => "Surface".AsSpan(),
+    };
+
+    private static bool DrawNotificationToggles(OverlayConfig config)
+    {
+        bool changed = false;
+
+        foreach (MissionEventKind kind in Enum.GetValues<MissionEventKind>())
+        {
+            if (kind == MissionEventKind.PlannedBurn)
+            {
+                continue;
+            }
+
+            MissionEvent sample = new(kind, 0.0);
+
+            if (!sample.DeservesCallout)
+            {
+                continue;
+            }
+
+            bool announced = !config.MutedNotifications.Contains(kind);
+
+            if (!ImGui.Checkbox(sample.Label, ref announced))
+            {
+                continue;
+            }
+
+            if (announced)
+            {
+                config.MutedNotifications.Remove(kind);
+            }
+            else if (!config.MutedNotifications.Contains(kind))
+            {
+                config.MutedNotifications.Add(kind);
+            }
+
+            changed = true;
+        }
+
+        return changed;
     }
 
     private static bool DrawKeyBinding(ImString label, ref ImGuiKey key, KeySlot slot)

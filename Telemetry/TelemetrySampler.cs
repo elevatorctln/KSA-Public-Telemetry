@@ -15,9 +15,18 @@ public static class TelemetrySampler
     private static readonly List<double> _burnTimes = new(8);
     public static SignalState Signal => _signal;
     public static MissionRegistry Missions => _missions;
+    private static MissionClock? _currentClock;
+    public static bool CanCountDown => _currentClock is { HasLiftoff: false };
+    public static bool IsCountingDown => _currentClock?.HasCountdown ?? false;
+    public static void StartCountdown(double seconds)
+        => _currentClock?.SetCountdown(Universe.GetElapsedSeconds() + seconds);
+
+    public static void CancelCountdown() => _currentClock?.CancelCountdown();
+
     public static void Reset()
     {
         _lastVehicleId = string.Empty;
+        _currentClock = null;
         _wreckHold = false;
         _signal.Reset();
         _missions.Clear();
@@ -106,12 +115,18 @@ public static class TelemetrySampler
 
         if (mission.Clock.LiftoffThisFrame)
         {
-            _missions.RecordLiftoff(mission.Key, mission.Clock.LiftoffUniverseSeconds);
+            _missions.RecordLiftoff(
+                mission.Key, mission.Clock.LiftoffUniverseSeconds, OriginOf(vehicle));
         }
+
+        snapshot.Downrange = DownrangeFrom(vehicle, mission.Key);
 
         snapshot.MissionElapsedSeconds = mission.Clock.ElapsedSeconds;
         snapshot.HasLiftoff = mission.Clock.HasLiftoff;
         snapshot.ClockEpochInferred = mission.Clock.EpochInferred;
+        snapshot.CountingDown = mission.Clock.HasCountdown;
+
+        _currentClock = mission.Clock;
 
         mission.Events.Update(
             snapshot,
@@ -176,8 +191,46 @@ public static class TelemetrySampler
     {
         snapshot.Clear();
         _lastVehicleId = string.Empty;
+        _currentClock = null;
         _wreckHold = false;
         _signal.SetNoVehicle();
+    }
+
+    private static LaunchOrigin OriginOf(Vehicle vehicle)
+    {
+        string body = vehicle.Orbit?.Parent?.Id ?? string.Empty;
+        vehicle.GetPhysicsStates().GetStatesCcf(out double3 positionCcf, out _, out _);
+
+        return new LaunchOrigin(body, positionCcf.X, positionCcf.Y, positionCcf.Z);
+    }
+    private static double DownrangeFrom(Vehicle vehicle, Int128 launchKey)
+    {
+        if (!_missions.TryGetOrigin(launchKey, out LaunchOrigin origin))
+        {
+            return double.NaN;
+        }
+
+        IParentBody? parent = vehicle.Orbit?.Parent;
+
+        if (parent is null || !string.Equals(parent.Id, origin.Body, StringComparison.Ordinal))
+        {
+            return double.NaN;
+        }
+
+        double3 from = new(origin.X, origin.Y, origin.Z);
+        vehicle.GetPhysicsStates().GetStatesCcf(out double3 to, out _, out _);
+
+        double fromLength = from.Length();
+        double toLength = to.Length();
+
+        if (fromLength <= 0.0 || toLength <= 0.0)
+        {
+            return double.NaN;
+        }
+
+        double cosine = Math.Clamp(double3.Dot(from / fromLength, to / toLength), -1.0, 1.0);
+
+        return parent.MeanRadius * Math.Acos(cosine);
     }
 
     private static double ToleranceFraction(Vehicle vehicle)
@@ -280,6 +333,7 @@ public static class TelemetrySampler
         double gravity = physics.Environment.GravitationBub.Length();
 
         snapshot.AmbientPressure = ambientPressure;
+        snapshot.AboveAtmosphere = ambientPressure <= 0f;
         snapshot.AmbientDensity = ambientDensity;
         snapshot.LocalGravity = (float)gravity;
         snapshot.DynamicPressure = 0.5f * ambientDensity * airspeed * airspeed;

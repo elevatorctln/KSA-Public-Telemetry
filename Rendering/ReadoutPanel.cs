@@ -3,6 +3,13 @@ using Brutal.Numerics;
 using KSATelemetryOverlay.Telemetry;
 
 namespace KSATelemetryOverlay.Rendering;
+public enum SpeedReference : byte
+{
+    Surface,
+    Orbital,
+    Auto,
+}
+
 public enum ReadoutKind : byte
 {
     Speed,
@@ -14,6 +21,7 @@ public enum ReadoutKind : byte
     DynamicPressure,
     Apoapsis,
     Periapsis,
+    Downrange,
 }
 
 public sealed class ReadoutPanel : IOverlayPanel
@@ -77,13 +85,16 @@ public sealed class ReadoutPanel : IOverlayPanel
             float textOpacity = context.Opacity * intro.Readouts;
 
             ReadoutKind kind = Kinds[i];
-            ReadOnlySpan<char> value = ValueFor(kind, _smoothed[i], buffer);
+
+            ReadOnlySpan<char> value = Unavailable(kind, context.Snapshot)
+                ? "--".AsSpan()
+                : ValueFor(kind, _smoothed[i], buffer);
 
             if (ringOpacity > 0f)
             {
                 Gfx.GaugePlate(context.DrawList, center, ringRadius, ringOpacity);
 
-                float fullScale = FullScaleFor(kind);
+                float fullScale = FullScaleFor(kind, context.Config);
                 if (fullScale > 0f && intro.ArcSweep > 0f)
                 {
                     DrawSweep(context.DrawList, center, ringRadius,
@@ -142,7 +153,7 @@ public sealed class ReadoutPanel : IOverlayPanel
 
     private static float RawValue(ReadoutKind kind, TelemetrySnapshot s, OverlayConfig config) => kind switch
     {
-        ReadoutKind.Speed           => (float)s.SurfaceSpeed,
+        ReadoutKind.Speed           => (float)SpeedFor(s, config),
         ReadoutKind.Altitude        => (float)(config.TerrainRelativeAltitude ? s.RadarAltitude : s.Altitude),
         ReadoutKind.GForce          => (float)s.GLoad,
         ReadoutKind.VerticalSpeed   => (float)s.VerticalSpeed,
@@ -151,8 +162,17 @@ public sealed class ReadoutPanel : IOverlayPanel
         ReadoutKind.DynamicPressure => s.DynamicPressure,
         ReadoutKind.Apoapsis        => (float)s.Apoapsis,
         ReadoutKind.Periapsis       => (float)s.Periapsis,
+        ReadoutKind.Downrange       => double.IsNaN(s.Downrange) ? 0f : (float)s.Downrange,
         _                           => 0f,
     };
+
+    private static double SpeedFor(TelemetrySnapshot s, OverlayConfig config)
+        => config.SpeedReference switch
+        {
+            SpeedReference.Orbital => s.OrbitalSpeed,
+            SpeedReference.Auto    => s.AboveAtmosphere ? s.OrbitalSpeed : s.SurfaceSpeed,
+            _                      => s.SurfaceSpeed,
+        };
 
     public static ReadOnlySpan<char> LabelFor(ReadoutKind kind) => kind switch
     {
@@ -165,6 +185,7 @@ public sealed class ReadoutPanel : IOverlayPanel
         ReadoutKind.DynamicPressure => "DYN PRESS".AsSpan(),
         ReadoutKind.Apoapsis        => "APOAPSIS".AsSpan(),
         ReadoutKind.Periapsis       => "PERIAPSIS".AsSpan(),
+        ReadoutKind.Downrange       => "DOWNRANGE".AsSpan(),
         _                           => "--".AsSpan(),
     };
 
@@ -180,8 +201,12 @@ public sealed class ReadoutPanel : IOverlayPanel
         ReadoutKind.DynamicPressure => Format.Pressure(buffer, value),
         ReadoutKind.Apoapsis        => Format.Distance(buffer, value),
         ReadoutKind.Periapsis       => Format.Distance(buffer, value),
+        ReadoutKind.Downrange       => Format.Number(buffer, value / 1000.0, "N1"),
         _                           => "--".AsSpan(),
     };
+
+    private static bool Unavailable(ReadoutKind kind, TelemetrySnapshot snapshot)
+        => kind == ReadoutKind.Downrange && double.IsNaN(snapshot.Downrange);
 
     public static ReadOnlySpan<char> UnitFor(ReadoutKind kind) => kind switch
     {
@@ -189,13 +214,15 @@ public sealed class ReadoutPanel : IOverlayPanel
         ReadoutKind.Altitude      => "KM".AsSpan(),
         ReadoutKind.GForce        => "G".AsSpan(),
         ReadoutKind.VerticalSpeed => "M/S".AsSpan(),
+        ReadoutKind.Downrange     => "KM".AsSpan(),
         _                         => default,
     };
 
-    private static float FullScaleFor(ReadoutKind kind) => kind switch
+    private static float FullScaleFor(ReadoutKind kind, OverlayConfig config) => kind switch
     {
-        ReadoutKind.Speed  => 7800f,
-        ReadoutKind.GForce => 6f,
+        ReadoutKind.Speed    => config.SpeedArcFullScale,
+        ReadoutKind.Altitude => config.AltitudeArcFullScaleKm * 1000f,
+        ReadoutKind.GForce   => config.GForceArcFullScale,
         _ => 0f,
     };
 

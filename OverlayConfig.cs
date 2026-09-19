@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Brutal.ImGuiApi;
 using KSATelemetryOverlay.Rendering;
+using KSATelemetryOverlay.Telemetry;
 
 namespace KSATelemetryOverlay;
 public sealed class OverlayConfig
@@ -9,13 +10,10 @@ public sealed class OverlayConfig
     public bool Enabled = false;
     public bool ShowTelemetryBar = true;
     public bool ShowEngineDiagram = true;
-
-    /// <summary>
-    /// Spins the engine dots inside the diagram, in degrees anticlockwise. Purely a
-    /// drawing transform: rotation preserves the distances between dots, so neither
-    /// the packing radius nor the ring grouping of the pop-in is affected.
-    /// </summary>
     public float EngineDiagramRotation = 0f;
+    public float SpeedArcFullScale = 7800f;
+    public float AltitudeArcFullScaleKm = 100f;
+    public float GForceArcFullScale = 6f;
     public bool ShowPropellants = true;
     public bool ShowMissionClock = true;
     public bool ShowTimeline = true;
@@ -23,11 +21,14 @@ public sealed class OverlayConfig
     public bool ShowNotifications = true;
     public bool ShowStatusWhenIdle = false;
     public bool HideOnRails = false;
+    public SpeedReference SpeedReference = SpeedReference.Surface;
+    public float CountdownSeconds = 10f;
     public bool TerrainRelativeAltitude = false;
 
     // behaviour
     public ImGuiKey ToggleKey = ImGuiKey.KeypadDecimal;
     public ImGuiKey SettingsKey = ImGuiKey.KeypadDivide;
+    public ImGuiKey CountdownKey = ImGuiKey.KeypadMultiply;
     public bool ReplaceFlightUi = true;
     public bool ShowWhenGameUiHidden = true;
     public string? MissionName = null;
@@ -45,7 +46,8 @@ public sealed class OverlayConfig
 
     // standalone windows
     public List<OverlayWindowState> Windows = [];
-
+    public List<MissionEventKind> MutedNotifications = [];
+    public Dictionary<string, SavedOrigin> MissionOrigins = [];
     public Dictionary<string, double> MissionEpochs = [];
 
     [JsonIgnore]
@@ -58,6 +60,10 @@ public sealed class OverlayConfig
     public const float MinTimelineWindow = 60f, MaxTimelineWindow = 1800f;
     public const float MinFreezeTolerance = 0.1f, MaxFreezeTolerance = 1f;
     public const float MinEngineRotation = 0f, MaxEngineRotation = 360f;
+    public const float MinCountdown = 1f, MaxCountdown = 600f;
+    public const float MinSpeedArc = 100f, MaxSpeedArc = 12000f;
+    public const float MinAltitudeArc = 0f, MaxAltitudeArc = 2000f;
+    public const float MinGForceArc = 1f, MaxGForceArc = 20f;
 }
 
 public sealed class OverlayWindowState

@@ -66,10 +66,13 @@ public static class Format
             return "--:--:--".AsSpan();
         }
 
-        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0.0)
+        if (double.IsNaN(seconds) || double.IsInfinity(seconds))
         {
             seconds = 0.0;
         }
+
+        // The sign belongs to the T-/T+ prefix, so only the magnitude is formatted.
+        seconds = Math.Abs(seconds);
 
         long total = (long)seconds;
         long hours = total / 3600L;

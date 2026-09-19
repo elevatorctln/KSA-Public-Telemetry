@@ -1,6 +1,8 @@
 using System.Globalization;
 
 namespace KSATelemetryOverlay.Telemetry;
+public readonly record struct LaunchOrigin(string Body, double X, double Y, double Z);
+
 public sealed class Mission(Int128 key)
 {
     public readonly Int128 Key = key;
@@ -23,6 +25,7 @@ public sealed class MissionRegistry
     private const int EpochCapacity = 32;
     private readonly Dictionary<Int128, Mission> _missions = [];
     private readonly Dictionary<Int128, double> _epochs = [];
+    private readonly Dictionary<Int128, LaunchOrigin> _origins = [];
     private long _clock;
     public int Count => _missions.Count;
 
@@ -54,7 +57,10 @@ public sealed class MissionRegistry
         return mission;
     }
 
-    public void RecordLiftoff(Int128 launchKey, double liftoffUniverseSeconds)
+    public bool TryGetOrigin(Int128 launchKey, out LaunchOrigin origin)
+        => _origins.TryGetValue(launchKey, out origin);
+
+    public void RecordLiftoff(Int128 launchKey, double liftoffUniverseSeconds, LaunchOrigin origin)
     {
         if (_epochs.TryGetValue(launchKey, out double known)
             && Math.Abs(known - liftoffUniverseSeconds) < 1e-6)
@@ -63,6 +69,7 @@ public sealed class MissionRegistry
         }
 
         _epochs[launchKey] = liftoffUniverseSeconds;
+        _origins[launchKey] = origin;
         EpochsChanged = true;
         EvictEpochs();
     }
@@ -81,26 +88,58 @@ public sealed class MissionRegistry
         return saved;
     }
 
-    public void ApplyEpochs(Dictionary<string, double>? saved)
+    public Dictionary<string, SavedOrigin> CaptureOrigins()
     {
-        _epochs.Clear();
-        EpochsChanged = false;
+        Dictionary<string, SavedOrigin> saved = new(_origins.Count, StringComparer.Ordinal);
 
-        if (saved is null)
+        foreach (KeyValuePair<Int128, LaunchOrigin> entry in _origins)
         {
-            return;
+            saved[entry.Key.ToString(CultureInfo.InvariantCulture)] = new SavedOrigin
+            {
+                Body = entry.Value.Body,
+                X = entry.Value.X,
+                Y = entry.Value.Y,
+                Z = entry.Value.Z,
+            };
         }
 
-        foreach (KeyValuePair<string, double> entry in saved)
+        return saved;
+    }
+
+    public void ApplyEpochs(
+        Dictionary<string, double>? saved, Dictionary<string, SavedOrigin>? origins = null)
+    {
+        _epochs.Clear();
+        _origins.Clear();
+        EpochsChanged = false;
+
+        if (saved is not null)
         {
-            if (Int128.TryParse(entry.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out Int128 key))
+            foreach (KeyValuePair<string, double> entry in saved)
             {
-                _epochs[key] = entry.Value;
+                if (TryParseKey(entry.Key, out Int128 key))
+                {
+                    _epochs[key] = entry.Value;
+                }
+            }
+        }
+
+        if (origins is not null)
+        {
+            foreach (KeyValuePair<string, SavedOrigin> entry in origins)
+            {
+                if (entry.Value is { Body.Length: > 0 } origin && TryParseKey(entry.Key, out Int128 key))
+                {
+                    _origins[key] = new LaunchOrigin(origin.Body, origin.X, origin.Y, origin.Z);
+                }
             }
         }
 
         EvictEpochs();
     }
+
+    private static bool TryParseKey(string text, out Int128 key)
+        => Int128.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out key);
 
     public void Clear() => _missions.Clear();
     private void EvictEpochs()
@@ -120,6 +159,7 @@ public sealed class MissionRegistry
             }
 
             _epochs.Remove(oldest);
+            _origins.Remove(oldest);
         }
     }
 
