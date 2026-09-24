@@ -372,6 +372,49 @@ public static class TelemetrySampler
         snapshot.AttachedRadialDecouplers = attached;
     }
 
+    private static int EffectiveSequence(
+        PartTree parts,
+        ModuleStateful<EngineController, EngineControllerState, EngineControllerGlobalState, EmptyStruct>.StateList controllerStates)
+    {
+        DiagramSequencePicker picker = new(parts.SequenceList?.ActiveSequence ?? 0);
+        var enumerator = controllerStates.ModulesAndStates.GetEnumerator();
+
+        while (enumerator.MoveNext())
+        {
+            EngineController controller = enumerator.Current.Module;
+            picker.Offer(controller.Sequence, controller.IsActive);
+        }
+
+        return picker.Result;
+    }
+
+    public struct DiagramSequencePicker(int activeSequence)
+    {
+        private readonly int _active = activeSequence;
+        private int _nearestAhead = int.MaxValue;
+        private bool _anyAtActive;
+
+        public void Offer(int sequence, bool isActive)
+        {
+            if (BelongsOnDiagram(sequence, _active, isActive))
+            {
+                _anyAtActive = true;
+                return;
+            }
+
+            if (sequence > _active && sequence < _nearestAhead)
+            {
+                _nearestAhead = sequence;
+            }
+        }
+
+        public readonly int Result =>
+            _anyAtActive || _nearestAhead == int.MaxValue ? _active : _nearestAhead;
+    }
+
+    public static bool BelongsOnDiagram(int sequence, int activeSequence, bool isActive)
+        => sequence <= activeSequence || isActive;
+
     private static void SampleEngines(Vehicle vehicle, TelemetrySnapshot snapshot)
     {
         PartTree parts = vehicle.Parts;
@@ -386,7 +429,7 @@ public static class TelemetrySampler
             return;
         }
 
-        int activeSequence = parts.SequenceList?.ActiveSequence ?? 0;
+        int activeSequence = EffectiveSequence(parts, controllerStates);
         snapshot.PartCount = parts.Count;
 
         float3 centreOfMass = vehicle.TotalMassPropsAsmb.Offset;
@@ -402,7 +445,7 @@ public static class TelemetrySampler
             ref readonly EngineControllerState controllerState = ref entry.State;
             bool controllerActive = controller.IsActive;
 
-            if (controller.Sequence != 0 && controller.Sequence != activeSequence && !controllerActive)
+            if (!BelongsOnDiagram(controller.Sequence, activeSequence, controllerActive))
             {
                 continue;
             }

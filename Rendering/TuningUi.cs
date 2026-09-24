@@ -137,6 +137,8 @@ public static class TuningUi
         if (ImGui.CollapsingHeader("Readouts"u8))
         {
             changed |= Slider("Value width x", ref Tuning.ValueWidthFraction, 0.5f, 3f);
+            changed |= Slider("Label width x", ref Tuning.LabelWidthFraction, 0.5f, 3f);
+            changed |= Slider("Min label shrink", ref Tuning.MinLabelShrink, 0.3f, 1f);
             changed |= Slider("Min value shrink", ref Tuning.MinValueShrink, 0.2f, 1f);
         }
 

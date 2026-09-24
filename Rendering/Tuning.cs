@@ -66,6 +66,9 @@ public static class Tuning
     public static float SwapInSeconds = 0.18f;
 
     // readouts
+    public static float LabelWidthFraction = 1.7f;
+    public static float MinLabelShrink = 0.7f;
+
     public static float ValueWidthFraction = 1.75f;
     public static float MinValueShrink = 0.584f;
 

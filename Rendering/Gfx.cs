@@ -263,6 +263,14 @@ public static class Gfx
             valueSize *= MathF.Max(maxValueWidth / valueExtent.X, Tuning.MinValueShrink);
         }
 
+        float2 labelProbe = MeasureWithFont(OverlayFonts.Label, labelSize, label);
+        float maxLabelWidth = radius * Tuning.LabelWidthFraction;
+
+        if (labelProbe.X > maxLabelWidth && labelProbe.X > 0f)
+        {
+            labelSize *= MathF.Max(maxLabelWidth / labelProbe.X, Tuning.MinLabelShrink);
+        }
+
         labelSize *= textScale;
         valueSize *= textScale;
 
