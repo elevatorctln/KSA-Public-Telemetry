@@ -30,6 +30,8 @@ public sealed class OverlayConfig
     public ImGuiKey SettingsKey = ImGuiKey.KeypadDivide;
     public ImGuiKey CountdownKey = ImGuiKey.KeypadMultiply;
     public bool ReplaceFlightUi = true;
+    public bool PlayIntro = true;
+    public bool PlayOutro = false;
     public bool ShowWhenGameUiHidden = true;
     public string? MissionName = null;
 

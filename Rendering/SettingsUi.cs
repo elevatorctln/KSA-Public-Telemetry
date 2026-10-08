@@ -190,6 +190,21 @@ public static class SettingsUi
             changed |= ImGui.SliderFloat("Smoothing"u8, ref config.SmoothingSeconds,
                 OverlayConfig.MinSmoothing, OverlayConfig.MaxSmoothing, "%.2f s"u8);
 
+            changed |= ImGui.Checkbox("Intro animation"u8, ref config.PlayIntro);
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Sweeps the bar in when the overlay appears."u8);
+            }
+
+            changed |= ImGui.Checkbox("Outro animation"u8, ref config.PlayOutro);
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(
+                    "Plays the reveal backwards when hidden, instead of cutting away."u8);
+            }
+
             if (inMenu)
             {
                 if (ImGui.BeginMenu("Colours"u8))

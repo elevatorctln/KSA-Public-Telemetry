@@ -71,15 +71,20 @@ public sealed class OverlayRenderer
 
         if (overlayVisible && !_wasVisible)
         {
-            // Coming back mid-outro just plays on from where it had retracted to.
-            _intro.Restart();
+            if (_config.PlayIntro)
+            {
+                // Coming back mid-outro just plays on from where it had retracted to.
+                _intro.Restart();
+            }
+            else
+            {
+                _intro.Finish();
+            }
+
             _outroActive = false;
         }
-        else if (!overlayVisible && _wasVisible && snapshot.HasVehicle)
+        else if (!overlayVisible && _wasVisible && snapshot.HasVehicle && _config.PlayOutro)
         {
-            // Only worth playing out while there is still something valid to draw.
-            // Losing the vehicle entirely has nothing to retract, and a breakup is
-            // already held frozen by the signal path.
             _intro.Reverse();
             _outroActive = true;
         }
