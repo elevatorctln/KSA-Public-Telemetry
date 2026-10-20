@@ -45,19 +45,25 @@
 		<Reference Include="$(ImportDir)Brutal.ImGui.Abstractions.dll">
 			<Private>false</Private>
 		</Reference>
-		<Reference Include="$(ImportDir)Brutal.Core.Numerics.dll">
+		<Reference Include="$(ImportDir)Brutal.Numerics.dll">
 			<Private>false</Private>
 		</Reference>
-		<Reference Include="$(ImportDir)Brutal.Core.Strings.dll">
+		<Reference Include="$(ImportDir)Brutal.Strings.dll">
 			<Private>false</Private>
 		</Reference>
-		<Reference Include="$(ImportDir)Brutal.Core.Common.dll">
+		<Reference Include="$(ImportDir)Brutal.Core.dll">
 			<Private>false</Private>
 		</Reference>
-		<Reference Include="$(ImportDir)Brutal.Core.Collections.dll">
+		<Reference Include="$(ImportDir)Brutal.Collections.dll">
 			<Private>false</Private>
 		</Reference>
-		<Reference Include="$(ImportDir)Brutal.Core.Maths.dll">
+		<Reference Include="$(ImportDir)Brutal.Maths.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Memory.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Logging.dll">
 			<Private>false</Private>
 		</Reference>
 		<Reference Include="$(ImportDir)Brutal.Glfw.dll">
