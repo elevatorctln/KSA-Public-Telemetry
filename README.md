@@ -3,13 +3,10 @@
 ---
 
 This is a work-in-progress mod for Kitten Space Agency that creates a SpaceX-style launch broadcast telemetry overlay in-game. The overlay is populated with live data from the active vehicle and the mod includes an engine diagram generated automatically using the actual position of the engines on your stage relative to each other.
-
-I am completely open to contributions and suggestions and certainly issue reports. I'll get to that stuff as quick as I can, but I can't promise being super fast.
-
 ## The mod features:
 
 - A bottom telemetry bar: speed and altitude on the left, T+ clock and mission timeline in the center, g-force and the engine diagram on the right. All of these positions are configurable. Styled to look like the SpaceX webcast overlay, slick animations and all.
-- An engine diagram built from the real nozzle positions on your active stage, with a propellant arc gauge around it. It intelligently displays the engines on the current stage, and filters out thngs like verniers and RCS nozzles. Engines are displayed to scale with each other based on exit diameter.
+- An engine diagram built from the real nozzle positions on your active stage, with a propellant arc gauge around it. It intelligently displays the engines on the current stage, and filters out things like verniers and RCS nozzles. Engines are displayed to scale with each other based on exit diameter.
 - Event notifications for certain in-flight events. Currently: Liftoff, Max-q, MECO, Stage Sep, SES-1, SECO, Landing burn, landing, and generic engine ignition/cutoff. I am not totally happy with how this works for now, it's not fully reliable but it does work most of the time. Improvements coming eventually, but it can be disabled in settings.
 - A mission timeline bar showing detected events behind the marker and any planned maneuvers ahead of it.
 - Freeze-on-signal-loss: if the vehicle stops being controllable, the overlay freezes at the last received values. When a vehicle passes 95% tolerance on any load limit, the telemetry pre-emptively freezes until either the vehicle breaks apart or the tolerance falls back below 95%. This prevents garbage telemetry being used from the same frame as a vehicle failure.
