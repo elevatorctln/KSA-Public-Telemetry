@@ -6,20 +6,22 @@ This is a work-in-progress mod for Kitten Space Agency that creates a SpaceX-sty
 
 I am completely open to contributions and suggestions and certainly issue reports. I'll get to that stuff as quick as I can, but I can't promise being super fast.
 
-## Features
+## The mod features:
 
-- A broadcast-style bottom bar: speed and altitude on the left, T+ clock and mission timeline in the center, g-force and the engine diagram on the right. Styled to look like the SpaceX webcast overlay slick animations and all.
-- An engine diagram built from the real nozzle positions on your active stage, with a propellant arc gauge around it.
-- Event notifications for certain in-flight events. Be warned that this is not totally reliable, maybe I'll make it a toggle or something.
-- A mission timeline bar showing detected events behind the marker and any planned maneuvers ahead of it. Same deal as the event notifications.
-- Freeze-on-signal-loss: if the vehicle stops being controllable, the overlay freezes at the last received values.
+- A bottom telemetry bar: speed and altitude on the left, T+ clock and mission timeline in the center, g-force and the engine diagram on the right. All of these positions are configurable. Styled to look like the SpaceX webcast overlay, slick animations and all.
+- An engine diagram built from the real nozzle positions on your active stage, with a propellant arc gauge around it. It intelligently displays the engines on the current stage, and filters out thngs like verniers and RCS nozzles. Engines are displayed to scale with each other based on exit diameter.
+- Event notifications for certain in-flight events. Currently: Liftoff, Max-q, MECO, Stage Sep, SES-1, SECO, Landing burn, landing, and generic engine ignition/cutoff. I am not totally happy with how this works for now, it's not fully reliable but it does work most of the time. Improvements coming eventually, but it can be disabled in settings.
+- A mission timeline bar showing detected events behind the marker and any planned maneuvers ahead of it.
+- Freeze-on-signal-loss: if the vehicle stops being controllable, the overlay freezes at the last received values. When a vehicle passes 95% tolerance on any load limit, the telemetry pre-emptively freezes until either the vehicle breaks apart or the tolerance falls back below 95%. This prevents garbage telemetry being used from the same frame as a vehicle failure.
 - Optionally and by default hides the flight UI while the overlay is up, and restores it afterwards. The HUD is shown again while the game's own layout-saving window is open, so a HUD layout saved with the overlay running does not have everything switched off.
-- Every element is also available as its own movable imgui window that behaves like any other.
+- Every element is available as its own movable imgui window that behaves like any other.
 - Fairly in-depth configuration available in the settings menu.
 
 ## Installation
 
-Download from Releases or from [Spacedock](https://spacedock.info/mod/4552/Webcast%20Telemetry%20Overlay).
+I recommend installing via [Borea](https://ksamodding.github.io/Borea/mod/KSATelemetryOverlay/). Alternatively you can download from Github or from [Spacedock](https://spacedock.info/mod/4552/Webcast%20Telemetry%20Overlay).
+
+If installing manually:
 
 Extract into `Documents/My Games/Kitten Space Agency/mods/` and add to `manifest.toml`:
 
@@ -29,20 +31,16 @@ id = "KSATelemetryOverlay"
 enabled = true
 ```
 
-[StarMap](https://github.com/StarMapLoader/StarMap) is required for this mod. Follow the instructions for installing it and launch the game through StarMap 
-when using this mod.
+## Dependencies:
+[StarMap](https://github.com/StarMapLoader/StarMap) is required for this mod. Follow the instructions for installing it and launch the game through StarMap when using this mod. Borea provides Starmap by default.
 
-## Maintainance
-
-This feels important for me to be clear about: KSA is in pre-alpha and this mod uses unofficial code mod loading using undocumented methods. This mod will break very regularly while the game is still in this phase of development and I cannot promise to fix it for every single build. When it breaks I will try to get it working again when I have the time, I just cannot promise when that will be at any given time. Your patience is greatly appreciated!
+[ModMenu](https://github.com/MrJeranimo/ModMenu) is optional but recommended, it provides the settings dropdown menu. If modmap is not installed, the settings menu can be accessed through a keybind that brings up a dedicated window, by default **numpad backslash**
 
 ## Settings
 
-If [ModMenu](https://github.com/MrJeranimo/ModMenu) is installed, settings appear under **Mods > Telemetry Overlay**. ModMenu is optional. Without it, press **numpad slash** for the same settings in a standalone window.
+Toggle the overlay on and off using the **numpad period** key by default. This can be configured in the config file or the settings menu.
 
-Toggle the overlay on and off using the **numpad period** key (I know). This can be configured in the config file.
-
-Settings are saved to `Documents/My Games/Kitten Space Agency/KSATelemetryOverlay/config.json`, which is safe to hand-edit.
+Settings are saved to `Documents/My Games/Kitten Space Agency/KSATelemetryOverlay/config.json`, which is safe to edit by hand if your heart so desires.
 
 ## Me
 
