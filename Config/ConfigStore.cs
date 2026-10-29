@@ -107,7 +107,8 @@ public static class ConfigStore
 
     private static readonly string[] _fragileSettings =
         ["ToggleKey", "SettingsKey", "LeftSlots", "RightSlots", "Windows", "MissionEpochs",
-         "MutedNotifications", "SpeedReference", "CountdownKey", "MissionOrigins", "DisplayMode", "ObsServerPort"];
+         "MutedNotifications", "SpeedReference", "CountdownKey", "MissionOrigins", "DisplayMode",
+         "ObsServerPort", "VideoStreamFps", "VideoStreamQuality", "VideoStreamMaxHeight"];
 
     private static OverlayConfig? LoadSettings(JsonNode? node)
     {
@@ -216,6 +217,9 @@ public static class ConfigStore
             OverlayConfig.MinFreezeTolerance,
             OverlayConfig.MaxFreezeTolerance);
         config.ObsServerPort = Math.Clamp(config.ObsServerPort, 1024, 65535);
+        config.VideoStreamFps = Math.Clamp(config.VideoStreamFps, 10, 60);
+        config.VideoStreamQuality = Math.Clamp(config.VideoStreamQuality, 20, 100);
+        config.VideoStreamMaxHeight = Math.Clamp(config.VideoStreamMaxHeight, 360, 2160);
 
         if (!Enum.IsDefined(config.DisplayMode))
         {

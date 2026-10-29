@@ -18,6 +18,10 @@ public sealed class OverlayConfig
     public OverlayDisplayMode DisplayMode = OverlayDisplayMode.InGameOnly;
     public bool EnableObsServer = true;
     public int ObsServerPort = 8088;
+    public bool StreamGameVideo = false;
+    public int VideoStreamFps = 30;
+    public int VideoStreamQuality = 65;
+    public int VideoStreamMaxHeight = 720;
     public bool ShowTelemetryBar = true;
     public bool ShowEngineDiagram = true;
     public float EngineDiagramRotation = 0f;
