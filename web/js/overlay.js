@@ -114,22 +114,25 @@
     // Signal notice fade
     let signalNoticeAlpha = 0;
 
+    let connected = false;
+    let connectionNoticeUntil = 0;
+
     let initialised = false;
     let lastTime = performance.now();
 
     // High DPI Canvas Resizing
-    function resizeCanvas() {
+    function ensureDimensions() {
         const dpr = window.devicePixelRatio || 1;
-        const displayWidth = window.innerWidth || REF_WIDTH;
-        const displayHeight = window.innerHeight || REF_HEIGHT;
+        const displayWidth = window.innerWidth > 0 ? window.innerWidth : REF_WIDTH;
+        const displayHeight = window.innerHeight > 0 ? window.innerHeight : REF_HEIGHT;
 
         if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
             canvas.width = displayWidth * dpr;
             canvas.height = displayHeight * dpr;
         }
     }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
+    window.addEventListener('resize', ensureDimensions);
+    ensureDimensions();
 
     // Arc helper: startAngle and endAngle where 0 is 12 o'clock, clockwise
     function drawArc(cx, cy, radius, startRad, endRad, color, lineWidth) {
@@ -224,8 +227,9 @@
 
     // Number & Unit Formatter matching Format.cs & ReadoutPanel.cs
     function formatReadout(kind) {
-        switch (kind) {
-            case 'Speed': {
+        const k = (kind || '').toString().toLowerCase();
+        switch (k) {
+            case 'speed': {
                 const kmh = smoothed.speed * 3.6;
                 const fullScale = (telemetry.speedArcFullScale || 7800.0) * 3.6;
                 return {
@@ -236,7 +240,7 @@
                     dim: false
                 };
             }
-            case 'Altitude': {
+            case 'altitude': {
                 const km = smoothed.altitude / 1000.0;
                 const fullScaleKm = telemetry.altitudeArcFullScaleKm || 100.0;
                 return {
@@ -247,7 +251,7 @@
                     dim: false
                 };
             }
-            case 'GForce': {
+            case 'gforce': {
                 const g = smoothed.gForce;
                 const fullScaleG = telemetry.gForceArcFullScale || 6.0;
                 return {
@@ -258,7 +262,7 @@
                     dim: false
                 };
             }
-            case 'VerticalSpeed': {
+            case 'verticalspeed': {
                 const vs = Math.round(smoothed.verticalSpeed);
                 return {
                     label: 'V/S',
@@ -268,7 +272,7 @@
                     dim: false
                 };
             }
-            case 'Thrust': {
+            case 'thrust': {
                 const t = smoothed.thrust;
                 if (t >= 1e6) {
                     return { label: 'THRUST', value: (t / 1e6).toFixed(2), unit: 'MN', level: 0, dim: false };
@@ -277,7 +281,7 @@
                 }
                 return { label: 'THRUST', value: Math.round(t).toLocaleString('en-US'), unit: 'N', level: 0, dim: false };
             }
-            case 'ThrustToWeight': {
+            case 'thrusttoweight': {
                 return {
                     label: 'T/W',
                     value: smoothed.thrustToWeight.toFixed(2),
@@ -286,7 +290,7 @@
                     dim: false
                 };
             }
-            case 'DynamicPressure': {
+            case 'dynamicpressure': {
                 const q = smoothed.dynamicPressure;
                 const dim = telemetry.maxDynamicPressure > 0 && q < telemetry.maxDynamicPressure * 0.98;
                 if (q >= 1e6) {
@@ -296,7 +300,7 @@
                 }
                 return { label: 'DYN PRESS', value: Math.round(q).toLocaleString('en-US'), unit: 'PA', level: 0, dim };
             }
-            case 'Apoapsis': {
+            case 'apoapsis': {
                 const ap = smoothed.apoapsis / 1000.0;
                 return {
                     label: 'APOAPSIS',
@@ -306,7 +310,7 @@
                     dim: false
                 };
             }
-            case 'Periapsis': {
+            case 'periapsis': {
                 const pe = smoothed.periapsis / 1000.0;
                 return {
                     label: 'PERIAPSIS',
@@ -316,7 +320,7 @@
                     dim: false
                 };
             }
-            case 'Downrange': {
+            case 'downrange': {
                 const dr = smoothed.downrange / 1000.0;
                 return {
                     label: 'DOWNRANGE',
@@ -327,7 +331,7 @@
                 };
             }
             default:
-                return { label: kind.toUpperCase(), value: '--', unit: '', level: 0, dim: false };
+                return { label: (kind || '').toString().toUpperCase(), value: '--', unit: '', level: 0, dim: false };
         }
     }
 
@@ -441,7 +445,7 @@
 
             for (let i = 0; i < engines.length; i++) {
                 const eng = engines[i];
-                const isBurning = eng.Burning || eng.Status === 'Nominal' || eng.Status === 'Throttled';
+                const isBurning = Boolean(eng.burning ?? eng.Burning ?? (eng.status === 'Nominal' || eng.Status === 'Nominal' || eng.status === 'Throttled' || eng.Status === 'Throttled'));
 
                 // Smooth engine fade
                 const state = engineStates[i];
@@ -454,15 +458,15 @@
                 }
 
                 // Rotated diagram coords (+Y is upwards in diagram space, negate for screen)
-                const ex = eng.X || 0;
-                const ey = eng.Y || 0;
+                const ex = eng.x ?? eng.X ?? 0;
+                const ey = eng.y ?? eng.Y ?? 0;
                 const rx = ex * cosR - ey * sinR;
                 const ry = ex * sinR + ey * cosR;
 
                 const px = cx + rx * (plotRadius * 0.65);
                 const py = cy - ry * (plotRadius * 0.65);
 
-                const engineDotR = eng.Radius ? dotRadius * eng.Radius : dotRadius;
+                const engineDotR = (eng.radius ?? eng.Radius) ? dotRadius * (eng.radius ?? eng.Radius) : dotRadius;
                 ctx.fillStyle = state.shownBurning ? COLOR_ENGINE_NOMINAL : COLOR_ENGINE_INACTIVE;
 
                 ctx.beginPath();
@@ -481,7 +485,7 @@
                 const px = cx + octaweb[i].x * (plotRadius * 0.65);
                 const py = cy - octaweb[i].y * (plotRadius * 0.65);
 
-                ctx.fillStyle = COLOR_ENGINE_NOMINAL;
+                ctx.fillStyle = COLOR_ENGINE_INACTIVE;
                 ctx.beginPath();
                 ctx.arc(px, py, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
@@ -528,7 +532,8 @@
         if (events && events.length > 0) {
             for (let i = 0; i < events.length; i++) {
                 const ev = events[i];
-                const dt = ev.Time - missionTime;
+                const time = ev.time ?? ev.Time ?? 0;
+                const dt = time - missionTime;
                 if (Math.abs(dt) <= halfWindow) {
                     const ex = cx + (dt / halfWindow) * (width * 0.5);
 
@@ -557,12 +562,14 @@
         }
 
         // Event callout text directly above the timeline indicator
-        const label = closestEvent && closestEvent.Label ? closestEvent.Label.toUpperCase() : 'ENGINE IGNITION';
-        ctx.font = `700 ${Math.round(11.0 * scale)}px Montserrat, sans-serif`;
-        ctx.fillStyle = COLOR_TEXT_PRIMARY;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(label, cx, y - 8.0 * scale);
+        const label = closestEvent ? (closestEvent.label || closestEvent.Label || closestEvent.kind || closestEvent.Kind || '').toUpperCase() : '';
+        if (label) {
+            ctx.font = `700 ${Math.round(11.0 * scale)}px Montserrat, sans-serif`;
+            ctx.fillStyle = COLOR_TEXT_PRIMARY;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(label, cx, y - 8.0 * scale);
+        }
 
         ctx.restore();
     }
@@ -607,7 +614,7 @@
         ctx.fillText(timeString, startX + prefixMetrics.width + 4.0 * scale, y);
 
         // Vehicle / Mission name below clock
-        const name = (vehicleName || '9elaunch2').toUpperCase();
+        const name = (vehicleName || 'STANDBY').toUpperCase();
         const nameSize = Math.round(11.0 * scale);
         ctx.font = `700 ${nameSize}px Montserrat, sans-serif`;
         ctx.textAlign = 'center';
@@ -731,30 +738,157 @@
         ctx.restore();
     }
 
+    window.onerror = function (msg, url, line, col, err) {
+        console.error('[OBS Overlay Error]', msg, line, col, err);
+        try {
+            ctx.save();
+            ctx.fillStyle = '#ff3333';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText(`OVERLAY ERROR: ${msg} (line ${line})`, 20, 40);
+            ctx.restore();
+        } catch (_) { }
+    };
+
+    function drawRoundRect(c, x, y, w, h, r) {
+        if (typeof c.roundRect === 'function') {
+            c.roundRect(x, y, w, h, r);
+            return;
+        }
+        const radius = Math.min(r, w * 0.5, h * 0.5);
+        c.moveTo(x + radius, y);
+        c.arcTo(x + w, y, x + w, y + h, radius);
+        c.arcTo(x + w, y + h, x, y + h, radius);
+        c.arcTo(x, y + h, x, y, radius);
+        c.arcTo(x, y, x + w, y, radius);
+        c.closePath();
+    }
+
+    function drawConnectionStatusPill(width, height, scale, opacity, isConnected, now) {
+        if (isConnected && now > connectionNoticeUntil) {
+            return;
+        }
+
+        ctx.save();
+        const pillText = isConnected
+            ? 'CONNECTED TO KSA'
+            : `CONNECTING TO KSA (${location.host || '127.0.0.1:8088'})...`;
+
+        const fontSize = Math.round(12.0 * scale);
+        ctx.font = `700 ${fontSize}px Montserrat, sans-serif`;
+        const textMetrics = ctx.measureText(pillText);
+        const pillW = textMetrics.width + 44.0 * scale;
+        const pillH = 30.0 * scale;
+        const pillX = (width - pillW) * 0.5;
+        const pillY = 24.0 * scale;
+        const pillR = pillH * 0.5;
+
+        // Background
+        ctx.fillStyle = 'rgba(15, 17, 20, 0.85)';
+        ctx.strokeStyle = isConnected ? 'rgba(50, 205, 50, 0.6)' : 'rgba(255, 204, 0, 0.6)';
+        ctx.lineWidth = Math.max(1.0, 1.5 * scale);
+        ctx.beginPath();
+        drawRoundRect(ctx, pillX, pillY, pillW, pillH, pillR);
+        ctx.fill();
+        ctx.stroke();
+
+        // Status dot
+        const dotX = pillX + 16.0 * scale;
+        const dotY = pillY + pillH * 0.5;
+        const dotR = 4.0 * scale;
+        ctx.fillStyle = isConnected ? '#32cd32' : (Math.sin(now / 200) > 0 ? '#ffcc00' : '#887700');
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Text
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(pillText, dotX + 10.0 * scale, dotY);
+
+        ctx.restore();
+    }
+
+    function drawStandbyOverlay(width, height, scale, opacity, isConnected, dt, now) {
+        drawBottomFade(width, height, scale, opacity);
+
+        const leftSlots = telemetry.leftSlots && telemetry.leftSlots.length > 0
+            ? telemetry.leftSlots
+            : ['Speed', 'Altitude'];
+        const leftCount = leftSlots.length;
+        const groupWLeft = (leftCount * CAPSULE_SIZE + (leftCount - 1) * CAPSULE_GAP) * scale;
+        const flatWLeft = (PANEL_MARGIN_X + BOX_PADDING) * scale + groupWLeft;
+        drawShelfBox(width, height, flatWLeft, true, scale, opacity);
+
+        const capsuleY = height - (PANEL_MARGIN_Y + CAPSULE_SIZE * 0.5) * scale;
+        for (let i = 0; i < leftCount; i++) {
+            const cx = (PANEL_MARGIN_X + CAPSULE_SIZE * 0.5) * scale + i * (CAPSULE_SIZE + CAPSULE_GAP) * scale;
+            const readout = formatReadout(leftSlots[i]);
+            drawCapsule(cx, capsuleY, readout, scale, opacity);
+        }
+
+        const rightSlots = telemetry.rightSlots && telemetry.rightSlots.length > 0
+            ? telemetry.rightSlots
+            : ['GForce'];
+        const rightCount = rightSlots.length;
+        const groupWRight = ((rightCount + 1) * CAPSULE_SIZE + rightCount * PANEL_GAP) * scale;
+        const flatWRight = (PANEL_MARGIN_X + BOX_PADDING) * scale + groupWRight;
+        drawShelfBox(width, height, flatWRight, false, scale, opacity);
+
+        const podX = width - (PANEL_MARGIN_X + CAPSULE_SIZE * 0.5) * scale;
+        const standbyEngines = telemetry.engines && telemetry.engines.length > 0
+            ? telemetry.engines
+            : [{ x: 0, y: 0, radius: 1, burning: false, status: 'Inactive' }];
+        drawEngineCluster(podX, capsuleY, 1.0, standbyEngines, dt, scale, opacity);
+
+        for (let i = 0; i < rightCount; i++) {
+            const cx = podX - (i + 1) * (CAPSULE_SIZE + PANEL_GAP) * scale;
+            const readout = formatReadout(rightSlots[i]);
+            drawCapsule(cx, capsuleY, readout, scale, opacity);
+        }
+
+        if (telemetry.showMissionClock) {
+            const clockY = height - 44.0 * scale;
+            drawMissionClock(
+                width * 0.5, clockY,
+                0,
+                telemetry.missionName || telemetry.vehicleName || 'STANDBY',
+                true,
+                scale,
+                opacity
+            );
+        }
+
+        drawConnectionStatusPill(width, height, scale, opacity, isConnected, now);
+    }
+
     // Main 60 FPS Render Loop
-    function render() {
+    function renderInternal() {
         const now = performance.now();
         const dt = Math.min((now - lastTime) / 1000.0, 0.1);
         lastTime = now;
 
+        ensureDimensions();
         const dpr = window.devicePixelRatio || 1;
         const width = canvas.width / dpr;
         const height = canvas.height / dpr;
+        if (width <= 0 || height <= 0) {
+            return;
+        }
 
         ctx.save();
         ctx.scale(dpr, dpr);
         ctx.clearRect(0, 0, width, height);
 
-        // If no vehicle active, overlay stays clean
-        if (!telemetry.hasVehicle) {
+        const scale = (height / REF_HEIGHT) * (telemetry.scale || 0.83);
+        const opacity = Math.max(0.1, Math.min(telemetry.opacity != null ? telemetry.opacity : 1.0, 1.0));
+
+        // If not connected or no active vehicle in flight, display standby mode
+        if (!connected || !telemetry.hasVehicle) {
+            drawStandbyOverlay(width, height, scale, opacity, connected, dt, now);
             ctx.restore();
-            requestAnimationFrame(render);
             return;
         }
-
-        // Overall scale based on canvas height vs reference 1080p
-        const scale = (height / REF_HEIGHT) * (telemetry.scale || 1.0);
-        const opacity = Math.max(0.1, Math.min(telemetry.opacity != null ? telemetry.opacity : 1.0, 1.0));
 
         // Exponential smoothing matching C# UpdateSmoothing
         const tau = Math.max(telemetry.smoothingSeconds || 0.12, 1e-4);
@@ -843,18 +977,40 @@
         // 5. Notifications & Status Overlays
         drawNotificationBanner(scale, opacity);
         drawSignalNotice(width, height, dt, scale, opacity);
+        drawConnectionStatusPill(width, height, scale, opacity, connected, now);
 
         ctx.restore();
+    }
+
+    function render() {
+        try {
+            renderInternal();
+        } catch (err) {
+            console.error('[OBS Overlay Render Error]', err);
+            try {
+                ctx.save();
+                ctx.fillStyle = '#ff3333';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.fillText(`RENDER ERROR: ${err && err.message ? err.message : err}`, 20, 40);
+                ctx.restore();
+            } catch (_) { }
+        }
         requestAnimationFrame(render);
     }
 
     // WebSocket Telemetry Connection
     function connect() {
+        let host = location.host;
+        if (!host || location.protocol === 'file:') {
+            host = '127.0.0.1:8088';
+        }
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${location.host}/ws`;
+        const wsUrl = `${protocol}//${host}/ws`;
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = function () {
+            connected = true;
+            connectionNoticeUntil = performance.now() + 3000;
             console.log('[OBS Overlay] Connected to KSA telemetry feed');
         };
 
@@ -863,66 +1019,99 @@
                 const packet = JSON.parse(event.data);
 
                 // Check for newly announced events to queue into notification banners
-                if (packet.Events && packet.Events.length > 0) {
-                    for (let i = 0; i < packet.Events.length; i++) {
-                        const ev = packet.Events[i];
-                        if (!ev.IsPrediction && !knownEventTimes.has(ev.Time)) {
-                            knownEventTimes.add(ev.Time);
+                const eventsList = packet.Events || packet.events;
+                if (eventsList && eventsList.length > 0) {
+                    for (let i = 0; i < eventsList.length; i++) {
+                        const ev = eventsList[i];
+                        const isPred = ev.IsPrediction ?? ev.isPrediction ?? false;
+                        const time = ev.Time ?? ev.time ?? 0;
+                        if (!isPred && !knownEventTimes.has(time)) {
+                            knownEventTimes.add(time);
                             bannerQueue.push({
-                                title: ev.Label || ev.Kind || 'EVENT',
-                                subtitle: ev.Explainer || ''
+                                title: ev.Label || ev.label || ev.Kind || ev.kind || 'EVENT',
+                                subtitle: ev.Explainer || ev.explainer || ''
                             });
                         }
                     }
                 }
 
-                // Update full telemetry state
+                // Map engines (support both PascalCase and camelCase)
+                const rawEngines = packet.Engines || packet.engines || [];
+                const parsedEngines = [];
+                for (let i = 0; i < rawEngines.length; i++) {
+                    const e = rawEngines[i];
+                    parsedEngines.push({
+                        status: e.Status || e.status || 'Inactive',
+                        x: e.X ?? e.x ?? 0,
+                        y: e.Y ?? e.y ?? 0,
+                        radius: e.Radius ?? e.radius ?? 1.0,
+                        throttle: e.Throttle ?? e.throttle ?? 0,
+                        burning: e.Burning ?? e.burning ?? false
+                    });
+                }
+
+                // Map events (support both PascalCase and camelCase)
+                const parsedEvents = [];
+                if (eventsList) {
+                    for (let i = 0; i < eventsList.length; i++) {
+                        const e = eventsList[i];
+                        parsedEvents.push({
+                            kind: e.Kind || e.kind || '',
+                            label: e.Label || e.label || '',
+                            explainer: e.Explainer || e.explainer || '',
+                            time: e.Time ?? e.time ?? 0,
+                            isPrediction: e.IsPrediction ?? e.isPrediction ?? false
+                        });
+                    }
+                }
+
+                // Update full telemetry state with dual-case fallbacks
                 telemetry = {
-                    hasVehicle: packet.HasVehicle,
-                    hasLiftoff: packet.HasLiftoff,
-                    countingDown: packet.CountingDown,
-                    isFrozen: packet.IsFrozen,
-                    signal: packet.Signal || 'Live',
-                    missionTime: packet.MissionTime || 0,
-                    vehicleName: packet.VehicleName || '',
-                    missionName: packet.MissionName || '',
-                    surfaceSpeed: packet.SurfaceSpeed || 0,
-                    orbitalSpeed: packet.OrbitalSpeed || 0,
-                    verticalSpeed: packet.VerticalSpeed || 0,
-                    speedRef: packet.SpeedRef || 'Surface',
-                    altitude: packet.Altitude || 0,
-                    radarAltitude: packet.RadarAltitude || 0,
-                    terrainRelative: packet.TerrainRelative,
-                    apoapsis: packet.Apoapsis || 0,
-                    periapsis: packet.Periapsis || 0,
-                    gForce: packet.GForce || 1.0,
-                    dynamicPressure: packet.DynamicPressure || 0,
-                    maxDynamicPressure: packet.MaxDynamicPressure || 0,
-                    downrange: packet.Downrange || 0,
-                    thrust: packet.Thrust || 0,
-                    thrustToWeight: packet.ThrustToWeight || 0,
-                    propellantFraction: packet.PropellantFraction != null ? packet.PropellantFraction : 1.0,
-                    propellantMass: packet.PropellantMass || 0,
-                    propellantCapacity: packet.PropellantCapacity || 0,
-                    burningEngines: packet.BurningEngines || 0,
-                    totalEngines: packet.TotalEngines || 0,
-                    engines: packet.Engines || [],
-                    events: packet.Events || [],
-                    leftSlots: packet.LeftSlots || ['Speed', 'Altitude'],
-                    rightSlots: packet.RightSlots || ['GForce'],
-                    showTelemetryBar: packet.ShowTelemetryBar !== false,
-                    showEngineDiagram: packet.ShowEngineDiagram !== false,
-                    showTimeline: packet.ShowTimeline !== false,
-                    showMissionClock: packet.ShowMissionClock !== false,
-                    showPropellants: packet.ShowPropellants !== false,
-                    scale: packet.Scale || 0.83,
-                    opacity: packet.Opacity != null ? packet.Opacity : 1.0,
-                    smoothingSeconds: packet.SmoothingSeconds || 0.12,
-                    timelineWindowSeconds: packet.TimelineWindowSeconds || 240.0,
-                    speedArcFullScale: packet.SpeedArcFullScale || 7800.0,
-                    altitudeArcFullScaleKm: packet.AltitudeArcFullScaleKm || 100.0,
-                    gForceArcFullScale: packet.GForceArcFullScale || 6.0,
-                    engineDiagramRotation: packet.EngineDiagramRotation || 0.0
+                    hasVehicle: Boolean(packet.HasVehicle ?? packet.hasVehicle),
+                    hasLiftoff: Boolean(packet.HasLiftoff ?? packet.hasLiftoff),
+                    countingDown: Boolean(packet.CountingDown ?? packet.countingDown),
+                    isFrozen: Boolean(packet.IsFrozen ?? packet.isFrozen),
+                    signal: packet.Signal || packet.signal || 'Live',
+                    missionTime: packet.MissionTime ?? packet.missionTime ?? 0,
+                    vehicleName: packet.VehicleName || packet.vehicleName || '',
+                    missionName: packet.MissionName || packet.missionName || '',
+                    surfaceSpeed: packet.SurfaceSpeed ?? packet.surfaceSpeed ?? 0,
+                    orbitalSpeed: packet.OrbitalSpeed ?? packet.orbitalSpeed ?? 0,
+                    verticalSpeed: packet.VerticalSpeed ?? packet.verticalSpeed ?? 0,
+                    speedRef: packet.SpeedRef || packet.speedRef || 'Surface',
+                    altitude: packet.Altitude ?? packet.altitude ?? 0,
+                    radarAltitude: packet.RadarAltitude ?? packet.radarAltitude ?? 0,
+                    terrainRelative: Boolean(packet.TerrainRelative ?? packet.terrainRelative),
+                    apoapsis: packet.Apoapsis ?? packet.apoapsis ?? 0,
+                    periapsis: packet.Periapsis ?? packet.periapsis ?? 0,
+                    gForce: packet.GForce ?? packet.gForce ?? 1.0,
+                    dynamicPressure: packet.DynamicPressure ?? packet.dynamicPressure ?? 0,
+                    maxDynamicPressure: packet.MaxDynamicPressure ?? packet.maxDynamicPressure ?? 0,
+                    downrange: packet.Downrange ?? packet.downrange ?? 0,
+                    thrust: packet.Thrust ?? packet.thrust ?? 0,
+                    thrustToWeight: packet.ThrustToWeight ?? packet.thrustToWeight ?? 0,
+                    propellantFraction: packet.PropellantFraction ?? packet.propellantFraction ?? 1.0,
+                    propellantMass: packet.PropellantMass ?? packet.propellantMass ?? 0,
+                    propellantCapacity: packet.PropellantCapacity ?? packet.propellantCapacity ?? 0,
+                    burningEngines: packet.BurningEngines ?? packet.burningEngines ?? 0,
+                    totalEngines: packet.TotalEngines ?? packet.totalEngines ?? 0,
+                    engines: parsedEngines,
+                    events: parsedEvents,
+                    leftSlots: packet.LeftSlots || packet.leftSlots || ['Speed', 'Altitude'],
+                    rightSlots: packet.RightSlots || packet.rightSlots || ['GForce'],
+                    showTelemetryBar: (packet.ShowTelemetryBar ?? packet.showTelemetryBar) !== false,
+                    showEngineDiagram: (packet.ShowEngineDiagram ?? packet.showEngineDiagram) !== false,
+                    showTimeline: (packet.ShowTimeline ?? packet.showTimeline) !== false,
+                    showMissionClock: (packet.ShowMissionClock ?? packet.showMissionClock) !== false,
+                    showPropellants: (packet.ShowPropellants ?? packet.showPropellants) !== false,
+                    scale: packet.Scale ?? packet.scale ?? 0.83,
+                    opacity: packet.Opacity ?? packet.opacity ?? 1.0,
+                    smoothingSeconds: packet.SmoothingSeconds ?? packet.smoothingSeconds ?? 0.12,
+                    timelineWindowSeconds: packet.TimelineWindowSeconds ?? packet.timelineWindowSeconds ?? 240.0,
+                    speedArcFullScale: packet.SpeedArcFullScale ?? packet.speedArcFullScale ?? 7800.0,
+                    altitudeArcFullScaleKm: packet.AltitudeArcFullScaleKm ?? packet.altitudeArcFullScaleKm ?? 100.0,
+                    gForceArcFullScale: packet.GForceArcFullScale ?? packet.gForceArcFullScale ?? 6.0,
+                    engineDiagramRotation: packet.EngineDiagramRotation ?? packet.engineDiagramRotation ?? 0.0
                 };
             } catch (err) {
                 console.error('[OBS Overlay] Error parsing telemetry packet:', err);
@@ -930,27 +1119,18 @@
         };
 
         ws.onclose = function () {
+            connected = false;
             setTimeout(connect, 1000);
         };
 
         ws.onerror = function () {
-            ws.close();
+            connected = false;
+            try { ws.close(); } catch (_) { }
         };
     }
 
-    // Wait for Montserrat fonts to load before starting render loop
-    if (document.fonts && document.fonts.load) {
-        Promise.all([
-            document.fonts.load('700 16px Montserrat'),
-            document.fonts.load('400 16px Montserrat')
-        ]).then(() => {
-            requestAnimationFrame(render);
-        }).catch(() => {
-            requestAnimationFrame(render);
-        });
-    } else {
-        requestAnimationFrame(render);
-    }
+    // Start render loop immediately without blocking on font promises
+    requestAnimationFrame(render);
 
     connect();
 })();

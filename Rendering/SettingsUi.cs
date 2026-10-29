@@ -281,6 +281,9 @@ public static class SettingsUi
     {
         bool changed = false;
 
+        changed |= ImGui.Checkbox("Enable OBS browser source server"u8, ref config.EnableObsServer);
+
+        ImGui.Spacing();
         ImGui.TextDisabled("Display Mode"u8);
 
         bool inGameOnly = config.DisplayMode == OverlayDisplayMode.InGameOnly;
@@ -327,14 +330,24 @@ public static class SettingsUi
             {
                 ImGui.TextColored(new float4(0.2f, 1f, 0.4f, 1f), _server.StatusText);
             }
+            else if (_server.StatusText.StartsWith("Error", StringComparison.OrdinalIgnoreCase))
+            {
+                ImGui.TextColored(new float4(1f, 0.4f, 0.4f, 1f), _server.StatusText);
+            }
             else
             {
                 ImGui.TextColored(new float4(0.7f, 0.7f, 0.7f, 1f), _server.StatusText);
             }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Restart Server"u8))
+            {
+                _server.Restart();
+            }
         }
 
         ImGui.TextDisabled("In OBS, add a Browser Source pointing to:"u8);
-        ImGui.TextColored(new float4(1f, 0.9f, 0.3f, 1f), $"http://localhost:{config.ObsServerPort}/");
+        ImGui.TextColored(new float4(1f, 0.9f, 0.3f, 1f), $"http://127.0.0.1:{config.ObsServerPort}/");
         ImGui.TextDisabled("Recommended size: 1920x1080 (transparent background)."u8);
 
         return changed;

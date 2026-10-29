@@ -17,11 +17,12 @@ public sealed class TelemetryServer : IDisposable
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     private readonly ConcurrentDictionary<WebSocket, byte> _sockets = new();
+    private readonly ConcurrentDictionary<WebSocket, int> _sendingFlags = new();
     private readonly System.Diagnostics.Stopwatch _broadcastTimer = System.Diagnostics.Stopwatch.StartNew();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -29,6 +30,10 @@ public sealed class TelemetryServer : IDisposable
     private string _webRoot = string.Empty;
     private string _fontRoot = string.Empty;
     private int _boundPort;
+    private int _targetPort;
+    private bool _desiredRun;
+    private bool _startFailed;
+    private string? _lastModDirectory;
     private string _lastError = string.Empty;
     private byte[]? _lastPacketBytes;
 
@@ -51,52 +56,70 @@ public sealed class TelemetryServer : IDisposable
             }
 
             int count = ConnectedClients;
-            return $"Running on http://localhost:{_boundPort}/ ({count} client{(count == 1 ? "" : "s")})";
+            return $"Running on http://127.0.0.1:{_boundPort}/ ({count} client{(count == 1 ? "" : "s")})";
         }
     }
 
     public void EnsureState(bool shouldRun, int port, string? modDirectory)
     {
-        if (shouldRun)
+        _lastModDirectory = modDirectory;
+
+        if (shouldRun != _desiredRun || port != _targetPort)
         {
-            if (!IsRunning || _boundPort != port)
+            _desiredRun = shouldRun;
+            _targetPort = port;
+            _startFailed = false;
+
+            if (shouldRun)
             {
                 Start(port, modDirectory);
             }
-        }
-        else
-        {
-            if (IsRunning)
+            else
             {
                 Stop();
             }
         }
+        else if (shouldRun && !IsRunning && !_startFailed)
+        {
+            Start(port, modDirectory);
+        }
+    }
+
+    public void Restart(string? modDirectory = null)
+    {
+        _startFailed = false;
+        int port = _boundPort > 0 ? _boundPort : (_targetPort > 0 ? _targetPort : 8088);
+        Start(port, modDirectory ?? _lastModDirectory);
     }
 
     public void Start(int port, string? modDirectory)
     {
         Stop();
         _lastError = string.Empty;
+        _startFailed = false;
+        _lastModDirectory = modDirectory;
 
         _webRoot = ResolveWebRoot(modDirectory);
         _fontRoot = ResolveFontRoot(modDirectory);
 
         try
         {
-            // Bind TcpListener directly on loopback (127.0.0.1).
+            // Bind dual-stack listener so both IPv4 (127.0.0.1) and IPv6 (::1/localhost) work seamlessly.
             // Unlike HttpListener (http.sys), TcpListener never requires administrator rights
             // or URL-ACL reservations, and functions reliably across Windows, Wine, Proton, and Linux.
-            _listener = new TcpListener(IPAddress.Loopback, port);
+            _listener = TcpListener.Create(port);
+            _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             _listener.Start();
 
             _boundPort = port;
             _cts = new CancellationTokenSource();
             _listenerTask = Task.Run(() => AcceptLoopAsync(_listener, _cts.Token));
 
-            Console.WriteLine(LogPrefix + $"started on http://127.0.0.1:{port}/ (serving '{_webRoot}')");
+            Console.WriteLine(LogPrefix + $"started on http://localhost:{port}/ (serving '{_webRoot}')");
         }
         catch (Exception ex)
         {
+            _startFailed = true;
             _lastError = ex.Message;
             Console.WriteLine(LogPrefix + $"failed to start on port {port}: {ex.Message}");
             Stop();
@@ -118,17 +141,10 @@ public sealed class TelemetryServer : IDisposable
 
         foreach (WebSocket ws in _sockets.Keys)
         {
-            try
-            {
-                if (ws.State == WebSocketState.Open)
-                {
-                    ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server stopping", CancellationToken.None);
-                }
-                ws.Dispose();
-            }
-            catch { }
+            RemoveSocket(ws);
         }
         _sockets.Clear();
+        _sendingFlags.Clear();
 
         if (_listener is not null)
         {
@@ -178,7 +194,7 @@ public sealed class TelemetryServer : IDisposable
                 }
                 else
                 {
-                    _sockets.TryRemove(ws, out _);
+                    RemoveSocket(ws);
                 }
             }
         }
@@ -190,20 +206,51 @@ public sealed class TelemetryServer : IDisposable
 
     private async Task SendToSocketAsync(WebSocket ws, byte[] bytes)
     {
+        // Prevent concurrent SendAsync on the same WebSocket instance
+        if (!_sendingFlags.TryUpdate(ws, 1, 0))
+        {
+            // A previous frame send is still in flight; drop intermediate frame to avoid queue lag
+            return;
+        }
+
         try
         {
-            await ws.SendAsync(
-                new ArraySegment<byte>(bytes),
-                WebSocketMessageType.Text,
-                endOfMessage: true,
-                CancellationToken.None);
+            if (ws.State == WebSocketState.Open)
+            {
+                await ws.SendAsync(
+                    new ArraySegment<byte>(bytes),
+                    WebSocketMessageType.Text,
+                    endOfMessage: true,
+                    CancellationToken.None);
+            }
         }
         catch
         {
-            _sockets.TryRemove(ws, out _);
-            try { ws.Dispose(); } catch { }
+            RemoveSocket(ws);
+        }
+        finally
+        {
+            _sendingFlags.TryUpdate(ws, 0, 1);
         }
     }
+
+    private void RemoveSocket(WebSocket ws)
+    {
+        _sockets.TryRemove(ws, out _);
+        _sendingFlags.TryRemove(ws, out _);
+        try
+        {
+            if (ws.State == WebSocketState.Open)
+            {
+                ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+            }
+            ws.Dispose();
+        }
+        catch { }
+    }
+
+    private static double FiniteOrZero(double v) => double.IsFinite(v) ? v : 0.0;
+    private static float FiniteOrZero(float v) => float.IsFinite(v) ? v : 0f;
 
     private static TelemetryPacket BuildPacket(TelemetrySnapshot s, OverlayConfig config)
     {
@@ -240,7 +287,7 @@ public sealed class TelemetryServer : IDisposable
                     Kind = ev.Kind.ToString(),
                     Label = ev.Label.ToString(),
                     Explainer = ev.Explainer.ToString(),
-                    Time = ev.MissionTime,
+                    Time = FiniteOrZero(ev.MissionTime),
                     IsPrediction = false,
                 };
             }
@@ -252,7 +299,7 @@ public sealed class TelemetryServer : IDisposable
                     Kind = ev.Kind.ToString(),
                     Label = ev.Label.ToString(),
                     Explainer = ev.Explainer.ToString(),
-                    Time = ev.MissionTime,
+                    Time = FiniteOrZero(ev.MissionTime),
                     IsPrediction = true,
                 };
             }
@@ -279,27 +326,27 @@ public sealed class TelemetryServer : IDisposable
             Signal = s.Signal.ToString(),
             IsFrozen = s.IsFrozen,
             CountingDown = s.CountingDown,
-            MissionTime = s.MissionElapsedSeconds,
+            MissionTime = FiniteOrZero(s.MissionElapsedSeconds),
             VehicleName = s.VehicleName,
             MissionName = missionName,
-            SurfaceSpeed = s.SurfaceSpeed,
-            OrbitalSpeed = s.OrbitalSpeed,
-            VerticalSpeed = s.VerticalSpeed,
+            SurfaceSpeed = FiniteOrZero(s.SurfaceSpeed),
+            OrbitalSpeed = FiniteOrZero(s.OrbitalSpeed),
+            VerticalSpeed = FiniteOrZero(s.VerticalSpeed),
             SpeedRef = config.SpeedReference.ToString(),
-            Altitude = s.Altitude,
-            RadarAltitude = s.RadarAltitude,
+            Altitude = FiniteOrZero(s.Altitude),
+            RadarAltitude = FiniteOrZero(s.RadarAltitude),
             TerrainRelative = config.TerrainRelativeAltitude,
-            Apoapsis = s.Apoapsis,
-            Periapsis = s.Periapsis,
-            GForce = s.GLoad,
-            DynamicPressure = s.DynamicPressure,
-            MaxDynamicPressure = s.MaxDynamicPressure,
-            Downrange = s.Downrange,
-            Thrust = s.Thrust,
-            ThrustToWeight = s.ThrustToWeight,
-            PropellantFraction = s.PropellantFraction,
-            PropellantMass = s.PropellantMass,
-            PropellantCapacity = s.PropellantCapacity,
+            Apoapsis = FiniteOrZero(s.Apoapsis),
+            Periapsis = FiniteOrZero(s.Periapsis),
+            GForce = FiniteOrZero(s.GLoad),
+            DynamicPressure = FiniteOrZero(s.DynamicPressure),
+            MaxDynamicPressure = FiniteOrZero(s.MaxDynamicPressure),
+            Downrange = FiniteOrZero(s.Downrange),
+            Thrust = FiniteOrZero(s.Thrust),
+            ThrustToWeight = FiniteOrZero(s.ThrustToWeight),
+            PropellantFraction = FiniteOrZero(s.PropellantFraction),
+            PropellantMass = FiniteOrZero(s.PropellantMass),
+            PropellantCapacity = FiniteOrZero(s.PropellantCapacity),
             BurningEngines = s.BurningEngineCount,
             TotalEngines = s.TotalEngineCount,
             Engines = engines,
@@ -400,6 +447,7 @@ public sealed class TelemetryServer : IDisposable
 
     private async Task ProcessWebSocketUpgradeAsync(NetworkStream stream, string wsKey, CancellationToken ct)
     {
+        WebSocket? ws = null;
         try
         {
             string accept = Convert.ToBase64String(
@@ -414,10 +462,11 @@ public sealed class TelemetryServer : IDisposable
             await stream.WriteAsync(headBytes, ct);
             await stream.FlushAsync(ct);
 
-            WebSocket ws = WebSocket.CreateFromStream(
+            ws = WebSocket.CreateFromStream(
                 stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromSeconds(30));
 
             _sockets.TryAdd(ws, 0);
+            _sendingFlags.TryAdd(ws, 0);
             Console.WriteLine(LogPrefix + $"client connected ({_sockets.Count} total)");
 
             if (_lastPacketBytes is not null)
@@ -431,11 +480,24 @@ public sealed class TelemetryServer : IDisposable
                 var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
+                    try
+                    {
+                        await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Closing", ct);
+                    }
+                    catch { }
                     break;
                 }
             }
         }
         catch { }
+        finally
+        {
+            if (ws is not null)
+            {
+                RemoveSocket(ws);
+                Console.WriteLine(LogPrefix + $"client disconnected ({_sockets.Count} total)");
+            }
+        }
     }
 
     private async Task ProcessHttpRequestAsync(NetworkStream stream, string url, CancellationToken ct)
@@ -469,6 +531,7 @@ public sealed class TelemetryServer : IDisposable
 
             if (!File.Exists(filePath))
             {
+                Console.WriteLine(LogPrefix + $"404 Not Found: {url} (checked '{filePath}')");
                 await WriteHttpResponseAsync(stream, 404, "text/plain", "File Not Found"u8.ToArray(), ct);
                 return;
             }
@@ -511,7 +574,9 @@ public sealed class TelemetryServer : IDisposable
                          $"Content-Length: {body.Length}\r\n" +
                          "Connection: close\r\n" +
                          "Access-Control-Allow-Origin: *\r\n" +
-                         "Cache-Control: no-cache\r\n\r\n";
+                         "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
+                         "Pragma: no-cache\r\n" +
+                         "Expires: 0\r\n\r\n";
 
         byte[] headBytes = Encoding.ASCII.GetBytes(headers);
         await stream.WriteAsync(headBytes, ct);

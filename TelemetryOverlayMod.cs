@@ -52,7 +52,7 @@ public class TelemetryOverlayMod
                 : $"overlay will hide with the game UI: {HiddenUiPatch.Failure}."));
             _renderer = new OverlayRenderer(_config);
             _server.EnsureState(
-                _config.DisplayMode is OverlayDisplayMode.ObsOnly or OverlayDisplayMode.Both,
+                _config.EnableObsServer,
                 _config.ObsServerPort,
                 _modDirectory);
             SettingsUi.Bind(_config, _windows, _server);
@@ -124,9 +124,7 @@ public class TelemetryOverlayMod
 
             HandleHotkeys(_config);
 
-            bool shouldServe = _config.DisplayMode is OverlayDisplayMode.ObsOnly or OverlayDisplayMode.Both;
-            _server.EnsureState(shouldServe, _config.ObsServerPort, _modDirectory);
-            _server.Update(dt, _snapshot, _config);
+            _server.EnsureState(_config.EnableObsServer, _config.ObsServerPort, _modDirectory);
 
             _renderer.Draw(_snapshot, dt);
 

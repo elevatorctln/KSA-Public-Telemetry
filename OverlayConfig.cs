@@ -16,6 +16,7 @@ public sealed class OverlayConfig
     // visibility
     public bool Enabled = false;
     public OverlayDisplayMode DisplayMode = OverlayDisplayMode.InGameOnly;
+    public bool EnableObsServer = true;
     public int ObsServerPort = 8088;
     public bool ShowTelemetryBar = true;
     public bool ShowEngineDiagram = true;
