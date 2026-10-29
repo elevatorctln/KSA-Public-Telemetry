@@ -399,7 +399,7 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
-# idk
-timeline/
+# idk (stop editing this!)
+info-for-agents/
 
 # End of https://www.toptal.com/developers/gitignore/api/csharp

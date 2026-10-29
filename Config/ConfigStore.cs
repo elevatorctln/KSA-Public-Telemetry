@@ -107,7 +107,7 @@ public static class ConfigStore
 
     private static readonly string[] _fragileSettings =
         ["ToggleKey", "SettingsKey", "LeftSlots", "RightSlots", "Windows", "MissionEpochs",
-         "MutedNotifications", "SpeedReference", "CountdownKey", "MissionOrigins"];
+         "MutedNotifications", "SpeedReference", "CountdownKey", "MissionOrigins", "DisplayMode", "ObsServerPort"];
 
     private static OverlayConfig? LoadSettings(JsonNode? node)
     {
@@ -215,6 +215,7 @@ public static class ConfigStore
             config.FreezeAtToleranceFraction,
             OverlayConfig.MinFreezeTolerance,
             OverlayConfig.MaxFreezeTolerance);
+        config.ObsServerPort = Math.Clamp(config.ObsServerPort, 1024, 65535);
 
         config.LeftSlots = SanitiseSlots(config.LeftSlots, [ReadoutKind.Speed, ReadoutKind.Altitude]);
         config.RightSlots = SanitiseSlots(config.RightSlots, [ReadoutKind.GForce]);

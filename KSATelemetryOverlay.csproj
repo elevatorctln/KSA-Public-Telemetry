@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
@@ -20,6 +20,10 @@
 		     with them: the SIL Open Font License requires the licence to travel with
 		     the font, and the mod rules require bundled work to carry its licence. -->
 		<None Include="montserrat\**\*.ttf;montserrat\OFL.txt" Link="montserrat\%(Filename)%(Extension)">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<!-- Web assets for the OBS browser source overlay -->
+		<None Include="web\**\*" Link="web\%(RecursiveDir)%(Filename)%(Extension)">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
 		<!-- Mod rules require the full licence text in the download itself. -->

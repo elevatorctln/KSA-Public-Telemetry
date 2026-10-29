@@ -3,6 +3,7 @@ using KSA;
 using KSATelemetryOverlay.Config;
 using KSATelemetryOverlay.Rendering;
 using KSATelemetryOverlay.Telemetry;
+using KSATelemetryOverlay.Telemetry.Server;
 using StarMap.API;
 
 namespace KSATelemetryOverlay;
@@ -14,6 +15,7 @@ public class TelemetryOverlayMod
 
     private readonly TelemetrySnapshot _snapshot = new();
     private readonly WindowHost _windows = new();
+    private readonly TelemetryServer _server = new();
 
     private OverlayConfig? _config;
     private OverlayRenderer? _renderer;
@@ -49,7 +51,11 @@ public class TelemetryOverlayMod
                 ? "overlay will stay up when the game UI is hidden."
                 : $"overlay will hide with the game UI: {HiddenUiPatch.Failure}."));
             _renderer = new OverlayRenderer(_config);
-            SettingsUi.Bind(_config, _windows);
+            _server.EnsureState(
+                _config.DisplayMode is OverlayDisplayMode.ObsOnly or OverlayDisplayMode.Both,
+                _config.ObsServerPort,
+                _modDirectory);
+            SettingsUi.Bind(_config, _windows, _server);
             TuningUi.Bind(_renderer);
 
             Console.WriteLine(
@@ -73,6 +79,7 @@ public class TelemetryOverlayMod
         try
         {
             TelemetrySampler.Sample(_snapshot, _config, dtPlayer);
+            _server.Update(dtPlayer, _snapshot, _config);
             HiddenUiPatch.RecordDelta(dtPlayer);
             Succeeded();
         }
@@ -116,6 +123,10 @@ public class TelemetryOverlayMod
             }
 
             HandleHotkeys(_config);
+
+            bool shouldServe = _config.DisplayMode is OverlayDisplayMode.ObsOnly or OverlayDisplayMode.Both;
+            _server.EnsureState(shouldServe, _config.ObsServerPort, _modDirectory);
+            _server.Update(dt, _snapshot, _config);
 
             _renderer.Draw(_snapshot, dt);
 
@@ -167,6 +178,7 @@ public class TelemetryOverlayMod
         }
 
         TelemetrySampler.Reset();
+        _server.Dispose();
         Console.WriteLine(LogPrefix + "unloaded");
     }
 

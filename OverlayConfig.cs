@@ -4,10 +4,19 @@ using KSATelemetryOverlay.Rendering;
 using KSATelemetryOverlay.Telemetry;
 
 namespace KSATelemetryOverlay;
+public enum OverlayDisplayMode : byte
+{
+    InGameOnly,
+    ObsOnly,
+    Both,
+}
+
 public sealed class OverlayConfig
 {
     // visibility
     public bool Enabled = false;
+    public OverlayDisplayMode DisplayMode = OverlayDisplayMode.InGameOnly;
+    public int ObsServerPort = 8088;
     public bool ShowTelemetryBar = true;
     public bool ShowEngineDiagram = true;
     public float EngineDiagramRotation = 0f;

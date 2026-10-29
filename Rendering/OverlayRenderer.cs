@@ -65,7 +65,10 @@ public sealed class OverlayRenderer
 
         _notifications.Update(snapshot, _config, dt);
 
+        bool inGameActive = _config.DisplayMode is OverlayDisplayMode.InGameOnly or OverlayDisplayMode.Both;
+
         bool overlayVisible = _config.Enabled
+            && inGameActive
             && snapshot.HasVehicle
             && !(_config.HideOnRails && snapshot.OnRails);
 

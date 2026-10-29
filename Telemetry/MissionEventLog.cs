@@ -7,6 +7,7 @@ public sealed class MissionEventLog
     private const double StageSepDebounce = 2.0;
     private const double IgnitionDebounce = 2.0;
     private const double LandingDebounce = 2.0;
+    private const double CutoffIgnitionGracePeriod = 5.0;
     private const double LandingBurnAltitude = 10_000.0;
     private const double LandingVerticalSpeed = 3.0;
     private const float MinMeaningfulQ = 1_000f;
@@ -26,6 +27,7 @@ public sealed class MissionEventLog
     private bool _liftoffFired;
     private bool _maxQFired;
     private bool _secondStageIgnitionFired;
+    private bool _landingBurnFired;
     private bool _previousContact;
     private int _cutoffCount;
     private string _cutoffVehicle = string.Empty;
@@ -59,6 +61,7 @@ public sealed class MissionEventLog
         _liftoffFired = false;
         _maxQFired = false;
         _secondStageIgnitionFired = false;
+        _landingBurnFired = false;
         _previousContact = false;
         _cutoffCount = 0;
         _cutoffVehicle = string.Empty;
@@ -198,9 +201,24 @@ public sealed class MissionEventLog
         }
 
         bool landing = snapshot.VerticalSpeed < 0.0 && snapshot.RadarAltitude < LandingBurnAltitude;
+        if (landing)
+        {
+            if (_landingBurnFired)
+            {
+                return;
+            }
 
-        Record(new MissionEvent(
-            landing ? MissionEventKind.LandingBurn : MissionEventKind.Ignition, now));
+            _landingBurnFired = true;
+            Record(new MissionEvent(MissionEventKind.LandingBurn, now));
+            return;
+        }
+
+        if (sameVehicle && now - _lastCutoffTime < CutoffIgnitionGracePeriod)
+        {
+            return;
+        }
+
+        Record(new MissionEvent(MissionEventKind.Ignition, now));
     }
 
     private void DetectLanding(TelemetrySnapshot snapshot, bool flying, double now)
@@ -221,6 +239,7 @@ public sealed class MissionEventLog
         }
 
         _lastLandingTime = now;
+        _landingBurnFired = false;
         Record(new MissionEvent(MissionEventKind.Landing, now));
     }
 
