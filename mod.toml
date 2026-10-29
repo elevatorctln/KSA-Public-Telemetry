@@ -2,3 +2,4 @@ name = "KSATelemetryOverlay"
 
 [StarMap]
 EntryAssembly = "KSATelemetryOverlay"
+ExportedAssemblies = [ "KSATelemetryOverlay" ]

@@ -401,5 +401,6 @@ FodyWeavers.xsd
 
 # idk (stop editing this!)
 info-for-agents/
+BrowserServerModule/
 
 # End of https://www.toptal.com/developers/gitignore/api/csharp

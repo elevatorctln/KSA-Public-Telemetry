@@ -2,7 +2,6 @@ using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using KSATelemetryOverlay.Config;
 using KSATelemetryOverlay.Telemetry;
-using KSATelemetryOverlay.Telemetry.Server;
 
 namespace KSATelemetryOverlay.Rendering;
 
@@ -11,7 +10,6 @@ public static class SettingsUi
     public static bool ModMenuActive { get; set; }
     private static OverlayConfig? _config;
     private static WindowHost? _windows;
-    private static TelemetryServer? _server;
     private static ImInputString? _missionName;
     private static bool _windowOpen;
     private enum KeySlot : byte { None, Toggle, Settings, Countdown }
@@ -46,11 +44,10 @@ public static class SettingsUi
         ("Timeline - upcoming",  nameof(OverlayStyle.TimelineFuture)),
     ];
 
-    public static void Bind(OverlayConfig config, WindowHost windows, TelemetryServer? server = null)
+    public static void Bind(OverlayConfig config, WindowHost windows)
     {
         _config = config;
         _windows = windows;
-        _server = server;
         _missionName = new ImInputString(64, config.MissionName ?? string.Empty);
     }
 
@@ -250,7 +247,15 @@ public static class SettingsUi
 
         if (Category("OBS / Webcast"u8, inMenu))
         {
-            changed |= DrawObsSettings(config);
+            if (TelemetryOverlayApi.HasObsModule)
+            {
+                changed |= TelemetryOverlayApi.DrawObsSettings(config);
+            }
+            else
+            {
+                ImGui.TextDisabled("Browser / OBS source addon module is not installed."u8);
+                ImGui.TextDisabled("Install 'Telemetry Overlay - Browser integration' to enable."u8);
+            }
             EndCategory(inMenu);
         }
 
@@ -275,82 +280,6 @@ public static class SettingsUi
         {
             ConfigStore.MarkDirty();
         }
-    }
-
-    private static bool DrawObsSettings(OverlayConfig config)
-    {
-        bool changed = false;
-
-        changed |= ImGui.Checkbox("Enable OBS browser source server"u8, ref config.EnableObsServer);
-
-        ImGui.Spacing();
-        ImGui.TextDisabled("Display Mode"u8);
-
-        bool inGameOnly = config.DisplayMode == OverlayDisplayMode.InGameOnly;
-        if (ImGui.RadioButton("In-game only"u8, inGameOnly))
-        {
-            config.DisplayMode = OverlayDisplayMode.InGameOnly;
-            changed = true;
-        }
-        ImGui.SameLine();
-        bool obsOnly = config.DisplayMode == OverlayDisplayMode.ObsOnly;
-        if (ImGui.RadioButton("OBS only"u8, obsOnly))
-        {
-            config.DisplayMode = OverlayDisplayMode.ObsOnly;
-            changed = true;
-        }
-        ImGui.SameLine();
-        bool both = config.DisplayMode == OverlayDisplayMode.Both;
-        if (ImGui.RadioButton("Both"u8, both))
-        {
-            config.DisplayMode = OverlayDisplayMode.Both;
-            changed = true;
-        }
-
-        if (config.DisplayMode == OverlayDisplayMode.ObsOnly)
-        {
-            ImGui.TextColored(new float4(0.4f, 0.8f, 1f, 1f), "In-game overlay hidden; stock KSA HUD stays on screen."u8);
-        }
-
-        ImGui.Spacing();
-
-        ImGui.SetNextItemWidth(120f);
-        int port = config.ObsServerPort;
-        if (ImGui.InputInt("Server port"u8, ref port, 1, 100))
-        {
-            config.ObsServerPort = Math.Clamp(port, 1024, 65535);
-            changed = true;
-        }
-
-        if (_server is not null)
-        {
-            ImGui.TextDisabled("Server status:"u8);
-            ImGui.SameLine();
-            if (_server.IsRunning)
-            {
-                ImGui.TextColored(new float4(0.2f, 1f, 0.4f, 1f), _server.StatusText);
-            }
-            else if (_server.StatusText.StartsWith("Error", StringComparison.OrdinalIgnoreCase))
-            {
-                ImGui.TextColored(new float4(1f, 0.4f, 0.4f, 1f), _server.StatusText);
-            }
-            else
-            {
-                ImGui.TextColored(new float4(0.7f, 0.7f, 0.7f, 1f), _server.StatusText);
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Restart Server"u8))
-            {
-                _server.Restart();
-            }
-        }
-
-        ImGui.TextDisabled("In OBS, add a Browser Source pointing to:"u8);
-        ImGui.TextColored(new float4(1f, 0.9f, 0.3f, 1f), $"http://127.0.0.1:{config.ObsServerPort}/");
-        ImGui.TextDisabled("Recommended size: 1920x1080 (transparent background)."u8);
-
-        return changed;
     }
 
     private static bool DrawCountdown(OverlayConfig config)

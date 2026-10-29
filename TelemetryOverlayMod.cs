@@ -3,7 +3,6 @@ using KSA;
 using KSATelemetryOverlay.Config;
 using KSATelemetryOverlay.Rendering;
 using KSATelemetryOverlay.Telemetry;
-using KSATelemetryOverlay.Telemetry.Server;
 using StarMap.API;
 
 namespace KSATelemetryOverlay;
@@ -15,7 +14,6 @@ public class TelemetryOverlayMod
 
     private readonly TelemetrySnapshot _snapshot = new();
     private readonly WindowHost _windows = new();
-    private readonly TelemetryServer _server = new();
 
     private OverlayConfig? _config;
     private OverlayRenderer? _renderer;
@@ -44,6 +42,7 @@ public class TelemetryOverlayMod
         try
         {
             _config = ConfigStore.Load();
+            TelemetryOverlayApi.CurrentConfig = _config;
             TelemetrySampler.Missions.ApplyEpochs(_config.MissionEpochs, _config.MissionOrigins);
             HiddenUiPatch.Install(DrawWhileGameUiHidden);
 
@@ -51,11 +50,7 @@ public class TelemetryOverlayMod
                 ? "overlay will stay up when the game UI is hidden."
                 : $"overlay will hide with the game UI: {HiddenUiPatch.Failure}."));
             _renderer = new OverlayRenderer(_config);
-            _server.EnsureState(
-                _config.EnableObsServer,
-                _config.ObsServerPort,
-                _modDirectory);
-            SettingsUi.Bind(_config, _windows, _server);
+            SettingsUi.Bind(_config, _windows);
             TuningUi.Bind(_renderer);
 
             Console.WriteLine(
@@ -79,7 +74,7 @@ public class TelemetryOverlayMod
         try
         {
             TelemetrySampler.Sample(_snapshot, _config, dtPlayer);
-            _server.Update(dtPlayer, _snapshot, _config);
+            TelemetryOverlayApi.NotifyTelemetrySampled(_snapshot, _config, dtPlayer);
             HiddenUiPatch.RecordDelta(dtPlayer);
             Succeeded();
         }
@@ -123,8 +118,6 @@ public class TelemetryOverlayMod
             }
 
             HandleHotkeys(_config);
-
-            _server.EnsureState(_config.EnableObsServer, _config.ObsServerPort, _modDirectory);
 
             _renderer.Draw(_snapshot, dt);
 
@@ -176,7 +169,7 @@ public class TelemetryOverlayMod
         }
 
         TelemetrySampler.Reset();
-        _server.Dispose();
+        TelemetryOverlayApi.CurrentConfig = null;
         Console.WriteLine(LogPrefix + "unloaded");
     }
 

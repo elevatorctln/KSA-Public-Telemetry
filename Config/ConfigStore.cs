@@ -217,6 +217,11 @@ public static class ConfigStore
             OverlayConfig.MaxFreezeTolerance);
         config.ObsServerPort = Math.Clamp(config.ObsServerPort, 1024, 65535);
 
+        if (!Enum.IsDefined(config.DisplayMode))
+        {
+            config.DisplayMode = OverlayDisplayMode.InGameOnly;
+        }
+
         config.LeftSlots = SanitiseSlots(config.LeftSlots, [ReadoutKind.Speed, ReadoutKind.Altitude]);
         config.RightSlots = SanitiseSlots(config.RightSlots, [ReadoutKind.GForce]);
 
