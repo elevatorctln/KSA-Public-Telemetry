@@ -1,6 +1,8 @@
+using System.IO;
 using Brutal.ImGuiApi;
 using Brutal.Numerics;
 using KSATelemetryOverlay.Config;
+using KSATelemetryOverlay.Recording;
 using KSATelemetryOverlay.Telemetry;
 
 namespace KSATelemetryOverlay.Rendering;
@@ -12,7 +14,7 @@ public static class SettingsUi
     private static WindowHost? _windows;
     private static ImInputString? _missionName;
     private static bool _windowOpen;
-    private enum KeySlot : byte { None, Toggle, Settings, Countdown }
+    private enum KeySlot : byte { None, Toggle, Settings, Countdown, Record }
     private static KeySlot _capturing;
     public static bool IsCapturingKey => _capturing != KeySlot.None;
 
@@ -245,17 +247,15 @@ public static class SettingsUi
             EndCategory(inMenu);
         }
 
-        if (Category("OBS / Webcast"u8, inMenu))
+        if (Category("Flight Recorder"u8, inMenu))
         {
-            if (TelemetryOverlayApi.HasObsModule)
-            {
-                changed |= TelemetryOverlayApi.DrawObsSettings(config);
-            }
-            else
-            {
-                ImGui.TextDisabled("Browser / OBS source addon module is not installed."u8);
-                ImGui.TextDisabled("Install 'Telemetry Overlay - Browser integration' to enable."u8);
-            }
+            changed |= DrawFlightRecorderSettings(config);
+            EndCategory(inMenu);
+        }
+
+        if (TelemetryOverlayApi.HasObsModule && Category("OBS / Webcast"u8, inMenu))
+        {
+            changed |= TelemetryOverlayApi.DrawObsSettings(config);
             EndCategory(inMenu);
         }
 
@@ -557,6 +557,134 @@ public static class SettingsUi
         if (changed)
         {
             config.MarkStructuralChange();
+        }
+
+        return changed;
+    }
+
+    private static bool DrawFlightRecorderSettings(OverlayConfig config)
+    {
+        bool changed = false;
+
+        ImGui.TextColored(new float4(0.4f, 0.8f, 1f, 1f), "Flight Recorder (Background Video Replay)"u8);
+        ImGui.TextDisabled("Records clean HUD-free 3D scene with SpaceX telemetry overlay directly to an .mp4 file."u8);
+
+        changed |= ImGui.Checkbox("Enable Flight Recorder"u8, ref config.EnableFlightRecorder);
+
+        if (config.EnableFlightRecorder)
+        {
+            ImGui.Indent();
+
+            // Status and Manual Controls
+            if (FlightRecorder.Instance.IsFinalizing)
+            {
+                ImGui.TextColored(new float4(0.3f, 0.7f, 1f, 1f), $"⚙ FINALIZING: {FlightRecorder.Instance.StatusMessage}");
+            }
+            else if (FlightRecorder.Instance.IsRecording)
+            {
+                float pulse = 0.6f + 0.4f * MathF.Sin((float)FlightRecorder.Instance.ElapsedSeconds * 5f);
+                ImGui.TextColored(new float4(1f, 0.2f, 0.2f, pulse), $"● REC: {FlightRecorder.Instance.StatusMessage}");
+                ImGui.SameLine();
+                if (ImGui.Button("Stop Recording##FlightRec"u8))
+                {
+                    FlightRecorder.Instance.StopRecording();
+                }
+            }
+            else
+            {
+                string? ffmpegPath = FfmpegEncoder.FindFfmpeg(config.FfmpegPath, TelemetryOverlayMod.ModDirectory);
+                if (ffmpegPath != null)
+                {
+                    string bestCodec = FfmpegEncoder.DetectBestCodec(ffmpegPath);
+                    ImGui.TextColored(new float4(0.3f, 0.9f, 0.5f, 1f), $"FFmpeg Ready: {FfmpegEncoder.CodecDisplayName(bestCodec)}");
+                    ImGui.SameLine();
+                    if (ImGui.Button("Start Recording Now##FlightRec"u8))
+                    {
+                        if (TelemetryOverlayApi.CurrentConfig is { } curCfg && GameCaptureHook.CurrentSnapshot is { } curSnap)
+                        {
+                            FlightRecorder.Instance.StartRecording(curCfg, curSnap, TelemetryOverlayMod.ModDirectory);
+                        }
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Re-detect GPU##FlightRec"u8))
+                    {
+                        FfmpegEncoder.InvalidateCodecCache();
+                    }
+                }
+                else
+                {
+                    ImGui.TextColored(new float4(1f, 0.4f, 0.4f, 1f), "FFmpeg not detected on PATH or mod folder."u8);
+                }
+            }
+
+            ImGui.Spacing();
+            changed |= DrawKeyBinding("Record video hotkey"u8, ref config.RecordKey, KeySlot.Record);
+            ImGui.TextDisabled("(Press in flight to start/stop)"u8);
+
+            // Resolution selection
+            ImGui.TextDisabled("Resolution:"u8);
+            ImGui.SameLine();
+            if (ImGui.RadioButton("720p##Rec"u8, config.RecordMaxHeight == 720))
+            {
+                config.RecordMaxHeight = 720;
+                changed = true;
+            }
+            ImGui.SameLine();
+            if (ImGui.RadioButton("1080p (Default)##Rec"u8, config.RecordMaxHeight == 1080 || (config.RecordMaxHeight != 720 && config.RecordMaxHeight != 1440)))
+            {
+                config.RecordMaxHeight = 1080;
+                changed = true;
+            }
+            ImGui.SameLine();
+            if (ImGui.RadioButton("1440p##Rec"u8, config.RecordMaxHeight == 1440))
+            {
+                config.RecordMaxHeight = 1440;
+                changed = true;
+            }
+
+            // Framerate selection
+            ImGui.TextDisabled("Framerate:"u8);
+            ImGui.SameLine();
+            if (ImGui.RadioButton("30 FPS (Default)##Rec"u8, config.RecordFps == 30 || config.RecordFps != 60))
+            {
+                config.RecordFps = 30;
+                changed = true;
+            }
+            ImGui.SameLine();
+            if (ImGui.RadioButton("60 FPS##Rec"u8, config.RecordFps == 60))
+            {
+                config.RecordFps = 60;
+                changed = true;
+            }
+
+            // Countdown setting
+            ImGui.SetNextItemWidth(120f);
+            float cd = config.CountdownSeconds;
+            if (ImGui.SliderFloat("Countdown (seconds)"u8, ref cd, 0f, 60f, "%.0f s"u8))
+            {
+                config.CountdownSeconds = MathF.Round(cd);
+                changed = true;
+            }
+            ImGui.TextDisabled("When countdown > 0, recording begins pre-launch and plays the intro reveal."u8);
+
+            // Auto-triggers
+            changed |= ImGui.Checkbox("Auto-start recording on Liftoff / Engine ignition"u8, ref config.AutoRecordOnLiftoff);
+            changed |= ImGui.Checkbox("Auto-stop recording after Landing / Mission End"u8, ref config.AutoStopOnMissionEnd);
+
+            // Open Folder button
+            if (ImGui.Button("Open Recordings Folder"u8))
+            {
+                FlightRecorder.OpenRecordingsFolder(config.RecordingsFolder);
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled(FlightRecorder.GetDefaultRecordingsDirectory());
+
+            if (!string.IsNullOrEmpty(FlightRecorder.Instance.LastSavedPath))
+            {
+                ImGui.TextColored(new float4(0.3f, 0.9f, 0.5f, 1f), $"Last Saved: {Path.GetFileName(FlightRecorder.Instance.LastSavedPath)} ({FlightRecorder.Instance.LastSavedSizeMb:F1} MB)");
+            }
+
+            ImGui.Unindent();
         }
 
         return changed;

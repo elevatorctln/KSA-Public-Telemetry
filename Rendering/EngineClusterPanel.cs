@@ -25,6 +25,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
     private enum SwapPhase : byte { Idle, Out, In }
     private SwapPhase _swap = SwapPhase.Idle;
     private float _swapT = 1f;
+    private string _lastVehicleId = string.Empty;
 
     private sealed class DotSet
     {
@@ -81,6 +82,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
         _outgoing.Clear();
         _swap = SwapPhase.Idle;
         _swapT = 1f;
+        _lastVehicleId = string.Empty;
     }
 
     public void Draw(in PanelContext context, float2 origin, float2 size)
@@ -215,8 +217,9 @@ public sealed class EngineClusterPanel : IOverlayPanel
     {
         List<EngineSample> engines = snapshot.Engines;
 
-        if (engines.Count != _dots.Length)
+        if (engines.Count != _dots.Length || !string.Equals(_lastVehicleId, snapshot.VehicleName, StringComparison.Ordinal))
         {
+            _lastVehicleId = snapshot.VehicleName;
             if (_live.Count > 0)
             {
                 _outgoing.CopyFrom(_live);
@@ -320,10 +323,36 @@ public sealed class EngineClusterPanel : IOverlayPanel
         }
 
         float margin = Tuning.EnvelopeMargin * scale;
-        float plotRadius = MathF.Max(
-            (radius - margin) / (1f + set.Normalised * set.MaxSizeFactor), 1f);
+        float maxExtent = 0f;
+        float minSizeFactor = float.MaxValue;
+        for (int i = 0; i < set.Count; i++)
+        {
+            float2 off = set.Offsets[i];
+            float len = MathF.Sqrt(off.X * off.X + off.Y * off.Y);
+            float extent = len + set.Normalised * set.SizeFactors[i];
+            if (extent > maxExtent)
+            {
+                maxExtent = extent;
+            }
+            if (set.SizeFactors[i] < minSizeFactor)
+            {
+                minSizeFactor = set.SizeFactors[i];
+            }
+        }
+
+        if (minSizeFactor == float.MaxValue || minSizeFactor <= 0f)
+        {
+            minSizeFactor = 1f;
+        }
+
+        float diagramExtent = MathF.Max(maxExtent, 1f);
+        float plotRadius = MathF.Max((radius - margin) / diagramExtent, 1f);
         plotRadius *= Tuning.ClusterFillFraction;
+
         float baseDotRadius = MathF.Max(set.Normalised * plotRadius, Tuning.MinDotRadius * scale);
+        // Ensure even the smallest engine dot remains cleanly visible without breaking relative scale
+        float minRequiredBase = (2.5f * scale) / minSizeFactor;
+        baseDotRadius = MathF.Max(baseDotRadius, minRequiredBase);
 
         // Diagram space has +Y upwards - it is negated on the way to the screen - so a
         // positive angle reads anticlockwise to the player. Solved once for the frame
@@ -359,8 +388,7 @@ public sealed class EngineClusterPanel : IOverlayPanel
 
             uint color = set.Colors[i];
 
-            float dotRadius =
-                MathF.Max(baseDotRadius * set.SizeFactors[i], 2.5f * scale) * popScale;
+            float dotRadius = (baseDotRadius * set.SizeFactors[i]) * popScale;
 
             if (set.Burning[i])
             {
@@ -388,27 +416,37 @@ public sealed class EngineClusterPanel : IOverlayPanel
             return Tuning.SingleEngineRadius;
         }
 
-        float minSeparation = float.MaxValue;
+        float minScaledSeparation = float.MaxValue;
         for (int i = 0; i < count; i++)
         {
+            float sfA = SizeFactorOf(engines[i]);
             for (int j = i + 1; j < count; j++)
             {
+                float sfB = SizeFactorOf(engines[j]);
                 float dx = engines[i].DiagramX - engines[j].DiagramX;
                 float dy = engines[i].DiagramY - engines[j].DiagramY;
                 float d = MathF.Sqrt(dx * dx + dy * dy);
-                if (d > 1e-4f && d < minSeparation)
+                if (d > 1e-4f)
                 {
-                    minSeparation = d;
+                    // Scale separation by relative engine sizes so larger engines get more space
+                    // and different-sized engines maintain correct relative scale:
+                    // dotRadius * sfA + dotRadius * sfB <= d => dotRadius <= d / (sfA + sfB)
+                    float pairScale = (sfA + sfB) * 0.5f;
+                    float scaledD = d / MathF.Max(pairScale, 0.01f);
+                    if (scaledD < minScaledSeparation)
+                    {
+                        minScaledSeparation = scaledD;
+                    }
                 }
             }
         }
 
-        if (minSeparation == float.MaxValue)
+        if (minScaledSeparation == float.MaxValue)
         {
             return MathF.Min(Tuning.SingleEngineRadius, 1f / MathF.Sqrt(count));
         }
 
-        return MathF.Min(minSeparation * 0.5f * Tuning.NeighbourFillFraction, Tuning.SingleEngineRadius);
+        return MathF.Min(minScaledSeparation * 0.5f * Tuning.NeighbourFillFraction, Tuning.SingleEngineRadius);
     }
 
     private static float[] ComputeRingStarts(List<EngineSample> engines, float dotRadius)

@@ -39,6 +39,16 @@ public sealed class OverlayConfig
     public float CountdownSeconds = 10f;
     public bool TerrainRelativeAltitude = false;
 
+    // flight recorder
+    public bool EnableFlightRecorder = true;
+    public ImGuiKey RecordKey = ImGuiKey.F9;
+    public int RecordFps = 30;
+    public int RecordMaxHeight = 1080;
+    public bool AutoRecordOnLiftoff = true;
+    public bool AutoStopOnMissionEnd = true;
+    public string? FfmpegPath = null;
+    public string? RecordingsFolder = null;
+
     // behaviour
     public ImGuiKey ToggleKey = ImGuiKey.KeypadDecimal;
     public ImGuiKey SettingsKey = ImGuiKey.KeypadDivide;
@@ -69,6 +79,46 @@ public sealed class OverlayConfig
     [JsonIgnore]
     public int Revision;
     public void MarkStructuralChange() => Revision++;
+
+    public OverlayConfig CloneForRecording()
+    {
+        return new OverlayConfig
+        {
+            Enabled = true,
+            DisplayMode = OverlayDisplayMode.InGameOnly,
+            PlayIntro = PlayIntro,
+            PlayOutro = PlayOutro,
+            ShowTelemetryBar = ShowTelemetryBar,
+            ShowEngineDiagram = ShowEngineDiagram,
+            EngineDiagramRotation = EngineDiagramRotation,
+            SpeedArcFullScale = SpeedArcFullScale,
+            AltitudeArcFullScaleKm = AltitudeArcFullScaleKm,
+            GForceArcFullScale = GForceArcFullScale,
+            ShowPropellants = ShowPropellants,
+            ShowMissionClock = ShowMissionClock,
+            ShowTimeline = ShowTimeline,
+            ShowBackdrop = ShowBackdrop,
+            ShowNotifications = ShowNotifications,
+            ShowStatusWhenIdle = ShowStatusWhenIdle,
+            HideOnRails = HideOnRails,
+            SpeedReference = SpeedReference,
+            CountdownSeconds = CountdownSeconds,
+            TerrainRelativeAltitude = TerrainRelativeAltitude,
+            ReplaceFlightUi = false,
+            MissionName = MissionName,
+            Scale = Scale,
+            Opacity = Opacity,
+            SmoothingSeconds = SmoothingSeconds,
+            FreezeAtToleranceFraction = FreezeAtToleranceFraction,
+            TimelineWindowSeconds = TimelineWindowSeconds,
+            LeftSlots = (ReadoutKind[])LeftSlots.Clone(),
+            RightSlots = (ReadoutKind[])RightSlots.Clone(),
+            MutedNotifications = [.. MutedNotifications],
+            MissionOrigins = new(MissionOrigins),
+            MissionEpochs = new(MissionEpochs),
+        };
+    }
+
     public const int MaxSlotsPerSide = 4;
     public const float MinScale = 0.5f, MaxScale = 2.5f;
     public const float MinOpacity = 0.1f, MaxOpacity = 1f;

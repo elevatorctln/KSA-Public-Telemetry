@@ -57,6 +57,7 @@ public static class Tuning
     public static float NeighbourFillFraction = 0.893f;
     public static float SingleEngineRadius = 0.37f;
     public static float ClusterFillFraction = 0.893f;
+    public static float ClusterGapFactor = 2.5f;
     public static float StateFadeSeconds = 0.18f;
     public static float StateJitterSeconds = 0.1f;
     public static float IntroDotStartScale = 0.55f;

@@ -100,4 +100,55 @@ public sealed class TelemetrySnapshot
     }
 
     public void ResetRecords() => MaxDynamicPressure = 0f;
+
+    public TelemetrySnapshot Clone()
+    {
+        var copy = new TelemetrySnapshot
+        {
+            HasVehicle = HasVehicle,
+            OnRails = OnRails,
+            HasSurfaceContact = HasSurfaceContact,
+            IsControllable = IsControllable,
+            MissionElapsedSeconds = MissionElapsedSeconds,
+            HasLiftoff = HasLiftoff,
+            Signal = Signal,
+            IsFrozen = IsFrozen,
+            VehicleName = VehicleName,
+            SurfaceSpeed = SurfaceSpeed,
+            OrbitalSpeed = OrbitalSpeed,
+            VerticalSpeed = VerticalSpeed,
+            Altitude = Altitude,
+            RadarAltitude = RadarAltitude,
+            Apoapsis = Apoapsis,
+            Periapsis = Periapsis,
+            GLoad = GLoad,
+            TotalMass = TotalMass,
+            PropellantMass = PropellantMass,
+            Thrust = Thrust,
+            ThrustToWeight = ThrustToWeight,
+            LocalGravity = LocalGravity,
+            AmbientPressure = AmbientPressure,
+            AboveAtmosphere = AboveAtmosphere,
+            AmbientDensity = AmbientDensity,
+            DynamicPressure = DynamicPressure,
+            MaxDynamicPressure = MaxDynamicPressure,
+            PropellantFraction = PropellantFraction,
+            PropellantCapacity = PropellantCapacity,
+            BurningEngineCount = BurningEngineCount,
+            TotalEngineCount = TotalEngineCount,
+            PartCount = PartCount,
+            AttachedRadialDecouplers = AttachedRadialDecouplers,
+            HasLaunched = HasLaunched,
+            LaunchUniverseSeconds = LaunchUniverseSeconds,
+            ClockEpochInferred = ClockEpochInferred,
+            CountingDown = CountingDown,
+            Downrange = Downrange,
+            Events = Events,
+        };
+        for (int i = 0; i < Engines.Count; i++)
+        {
+            copy.Engines.Add(Engines[i]);
+        }
+        return copy;
+    }
 }

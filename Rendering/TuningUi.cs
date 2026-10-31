@@ -117,6 +117,7 @@ public static class TuningUi
         {
             ImGui.TextDisabled("Layout"u8);
             changed |= Slider("Cluster fill", ref Tuning.ClusterFillFraction, 0.3f, 1.2f);
+            changed |= Slider("Cluster gap factor", ref Tuning.ClusterGapFactor, 1.0f, 5.0f);
             changed |= Slider("Neighbour fill", ref Tuning.NeighbourFillFraction, 0.2f, 1.2f);
             changed |= Slider("Envelope margin", ref Tuning.EnvelopeMargin, 0f, 30f, "%.1f"u8);
             changed |= Slider("Single dot radius", ref Tuning.SingleEngineRadius, 0.05f, 1f);

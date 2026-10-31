@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Brutal.Numerics;
 using KSA;
+using KSATelemetryOverlay.Rendering;
 
 namespace KSATelemetryOverlay.Telemetry;
 
@@ -669,6 +670,7 @@ public static class TelemetrySampler
         }
 
         SeparateOverlaps(snapshot);
+        BalanceClusters(snapshot);
 
         float maxRadius = 0f;
         for (int i = 0; i < count; i++)
@@ -748,6 +750,226 @@ public static class TelemetrySampler
     }
 
     private static readonly List<int> _overlapGroup = new(16);
+    private const float ClusterOuterRadius = 0.94f;
+
+    /// <summary>
+    /// Dynamically balances clustered engine pods (e.g. 4-engine booster pods)
+    /// into surrounding empty diagram space while preserving relative pod geometry, quadrant positions,
+    /// relative engine sizes, and distinct visual separation between separate stages/pods.
+    /// </summary>
+    private static void BalanceClusters(TelemetrySnapshot snapshot)
+    {
+        int count = snapshot.Engines.Count;
+        if (count < 2)
+        {
+            return;
+        }
+
+        // 1. Find minimum separation between any distinct pair of engines
+        float minSeparation = float.MaxValue;
+        for (int i = 0; i < count; i++)
+        {
+            float ax = snapshot.Engines[i].DiagramX;
+            float ay = snapshot.Engines[i].DiagramY;
+            for (int j = i + 1; j < count; j++)
+            {
+                float dx = ax - snapshot.Engines[j].DiagramX;
+                float dy = ay - snapshot.Engines[j].DiagramY;
+                float d = MathF.Sqrt(dx * dx + dy * dy);
+                if (d > 1e-4f && d < minSeparation)
+                {
+                    minSeparation = d;
+                }
+            }
+        }
+
+        if (minSeparation == float.MaxValue)
+        {
+            return;
+        }
+
+        // 2. Partition engines into clusters using breadth-first traversal
+        float clusterThreshold = minSeparation * 1.8f;
+        float clusterThresholdSq = clusterThreshold * clusterThreshold;
+
+        Span<int> clusterIds = count <= 128 ? stackalloc int[count] : new int[count];
+        Span<bool> visited = count <= 128 ? stackalloc bool[count] : new bool[count];
+        Span<int> queue = count <= 128 ? stackalloc int[count] : new int[count];
+
+        int clusterCount = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (visited[i])
+            {
+                continue;
+            }
+
+            int clusterId = clusterCount++;
+            int qHead = 0;
+            int qTail = 0;
+
+            visited[i] = true;
+            clusterIds[i] = clusterId;
+            queue[qTail++] = i;
+
+            while (qHead < qTail)
+            {
+                int u = queue[qHead++];
+                float ux = snapshot.Engines[u].DiagramX;
+                float uy = snapshot.Engines[u].DiagramY;
+
+                for (int v = 0; v < count; v++)
+                {
+                    if (visited[v])
+                    {
+                        continue;
+                    }
+
+                    float dx = ux - snapshot.Engines[v].DiagramX;
+                    float dy = uy - snapshot.Engines[v].DiagramY;
+                    if (dx * dx + dy * dy <= clusterThresholdSq)
+                    {
+                        visited[v] = true;
+                        clusterIds[v] = clusterId;
+                        queue[qTail++] = v;
+                    }
+                }
+            }
+        }
+
+        if (clusterCount <= 1)
+        {
+            return;
+        }
+
+        // 3. Compute centroids and internal radii of each cluster
+        Span<float> centroidsX = count <= 128 ? stackalloc float[clusterCount] : new float[clusterCount];
+        Span<float> centroidsY = count <= 128 ? stackalloc float[clusterCount] : new float[clusterCount];
+        Span<int> clusterSizes = count <= 128 ? stackalloc int[clusterCount] : new int[clusterCount];
+        Span<float> internalRadii = count <= 128 ? stackalloc float[clusterCount] : new float[clusterCount];
+
+        for (int i = 0; i < count; i++)
+        {
+            int c = clusterIds[i];
+            centroidsX[c] += snapshot.Engines[i].DiagramX;
+            centroidsY[c] += snapshot.Engines[i].DiagramY;
+            clusterSizes[c]++;
+        }
+
+        for (int c = 0; c < clusterCount; c++)
+        {
+            if (clusterSizes[c] > 0)
+            {
+                float invSize = 1f / clusterSizes[c];
+                centroidsX[c] *= invSize;
+                centroidsY[c] *= invSize;
+            }
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            int c = clusterIds[i];
+            float dx = snapshot.Engines[i].DiagramX - centroidsX[c];
+            float dy = snapshot.Engines[i].DiagramY - centroidsY[c];
+            float r = MathF.Sqrt(dx * dx + dy * dy);
+            if (r > internalRadii[c])
+            {
+                internalRadii[c] = r;
+            }
+        }
+
+        float maxInternalRadius = 0f;
+        float maxCentroidRadius = 0f;
+
+        for (int c = 0; c < clusterCount; c++)
+        {
+            float cr = MathF.Sqrt(centroidsX[c] * centroidsX[c] + centroidsY[c] * centroidsY[c]);
+            if (cr > maxCentroidRadius)
+            {
+                maxCentroidRadius = cr;
+            }
+            if (internalRadii[c] > maxInternalRadius)
+            {
+                maxInternalRadius = internalRadii[c];
+            }
+        }
+
+        // If there are no multi-engine pods away from center, no expansion is needed
+        if (maxInternalRadius <= 1e-4f || maxCentroidRadius <= 1e-4f)
+        {
+            return;
+        }
+
+        // 4. Calculate pairwise cluster clearance ratio rho
+        // To guarantee distinct visual separation between separate clusters/cores:
+        // interGap = alpha * d_ij - beta * (R_i + R_j) - 2 * beta * rDotBase
+        // intraGap = beta * (d_min - 2 * rDotBase)
+        // Requiring interGap >= Tuning.ClusterGapFactor * intraGap yields:
+        // alpha * d_ij >= beta * (R_i + R_j + sepTerm)
+        // where sepTerm = 2 * rDotBase + Tuning.ClusterGapFactor * intraGapBase
+        float fillFraction = Tuning.NeighbourFillFraction;
+        float rDotBase = minSeparation * 0.5f * fillFraction;
+        float intraGapBase = minSeparation - 2f * rDotBase;
+        float sepTerm = 2f * rDotBase + Tuning.ClusterGapFactor * intraGapBase;
+
+        float maxRho = 0f;
+        for (int i = 0; i < clusterCount; i++)
+        {
+            for (int j = i + 1; j < clusterCount; j++)
+            {
+                float dx = centroidsX[i] - centroidsX[j];
+                float dy = centroidsY[i] - centroidsY[j];
+                float d = MathF.Sqrt(dx * dx + dy * dy);
+                if (d > 1e-4f)
+                {
+                    float rho = (internalRadii[i] + internalRadii[j] + sepTerm) / d;
+                    if (rho > maxRho)
+                    {
+                        maxRho = rho;
+                    }
+                }
+            }
+        }
+
+        if (maxRho <= 1e-4f)
+        {
+            return;
+        }
+
+        // 5. Compute optimal beta (cluster expansion) and alpha (centroid scale)
+        // Outer boundary constraint: alpha * maxCentroidRadius + beta * maxInternalRadius <= ClusterOuterRadius
+        // With alpha = beta * maxRho:
+        float beta = ClusterOuterRadius / (maxRho * maxCentroidRadius + maxInternalRadius);
+        float alpha = beta * maxRho;
+
+        // Clamp to sensible visual bounds
+        beta = Math.Clamp(beta, 1.0f, 1.8f);
+        alpha = Math.Clamp(alpha, 0.60f, 1.0f);
+
+        // If no meaningful change is needed, skip
+        if (beta <= 1.02f && alpha >= 0.98f)
+        {
+            return;
+        }
+
+        // 6. Apply transformation to each engine
+        for (int i = 0; i < count; i++)
+        {
+            int c = clusterIds[i];
+            float cxOrig = centroidsX[c];
+            float cyOrig = centroidsY[c];
+            float cxNew = cxOrig * alpha;
+            float cyNew = cyOrig * alpha;
+
+            float ox = snapshot.Engines[i].DiagramX - cxOrig;
+            float oy = snapshot.Engines[i].DiagramY - cyOrig;
+
+            EngineSample sample = snapshot.Engines[i];
+            sample.DiagramX = cxNew + ox * beta;
+            sample.DiagramY = cyNew + oy * beta;
+            snapshot.Engines[i] = sample;
+        }
+    }
 
     /// Sums propellant mass and capacity across every tank on the vehicle, no need to differentiate.
     private static void SamplePropellants(Vehicle vehicle, TelemetrySnapshot snapshot)

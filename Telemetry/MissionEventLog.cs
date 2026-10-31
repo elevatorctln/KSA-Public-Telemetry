@@ -270,7 +270,7 @@ public sealed class MissionEventLog
         Record(new MissionEvent(kind, now));
     }
 
-    private void Record(MissionEvent missionEvent)
+    public void Record(MissionEvent missionEvent)
     {
         _recorded.Add(missionEvent);
         _firedThisFrame.Add(missionEvent);
@@ -288,4 +288,9 @@ public sealed class MissionEventLog
     }
 
     public void ClearPredictions() => _predicted.Clear();
+
+    public void AddPrediction(MissionEvent missionEvent)
+    {
+        _predicted.Add(missionEvent);
+    }
 }

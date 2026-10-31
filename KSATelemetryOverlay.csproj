@@ -76,6 +76,18 @@
 		<Reference Include="$(ImportDir)StarMap.API.dll">
 			<Private>false</Private>
 		</Reference>
+		<Reference Include="$(ImportDir)0Harmony.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Vulkan.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Vulkan.Abstractions.dll">
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="$(ImportDir)Planet.Render.Core.dll">
+			<Private>false</Private>
+		</Reference>
 	</ItemGroup>
 
 </Project>

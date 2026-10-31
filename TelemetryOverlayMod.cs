@@ -1,6 +1,7 @@
 using Brutal.ImGuiApi;
 using KSA;
 using KSATelemetryOverlay.Config;
+using KSATelemetryOverlay.Recording;
 using KSATelemetryOverlay.Rendering;
 using KSATelemetryOverlay.Telemetry;
 using StarMap.API;
@@ -11,6 +12,8 @@ namespace KSATelemetryOverlay;
 public class TelemetryOverlayMod
 {
     private const string LogPrefix = "[KSATelemetryOverlay] ";
+
+    public static string? ModDirectory { get; private set; }
 
     private readonly TelemetrySnapshot _snapshot = new();
     private readonly WindowHost _windows = new();
@@ -33,6 +36,7 @@ public class TelemetryOverlayMod
     public void OnImmediateLoad(Mod mod)
     {
         _modDirectory = mod.DirectoryPath;
+        ModDirectory = mod.DirectoryPath;
         Console.WriteLine(LogPrefix + $"attached to KSA mod '{mod.Id}'");
     }
 
@@ -52,6 +56,11 @@ public class TelemetryOverlayMod
             _renderer = new OverlayRenderer(_config);
             SettingsUi.Bind(_config, _windows);
             TuningUi.Bind(_renderer);
+
+            if (_config.EnableFlightRecorder)
+            {
+                GameCaptureHook.Install();
+            }
 
             Console.WriteLine(
                 LogPrefix + $"ready - {_config.ToggleKey} toggles the overlay, " +
@@ -74,6 +83,19 @@ public class TelemetryOverlayMod
         try
         {
             TelemetrySampler.Sample(_snapshot, _config, dtPlayer);
+            GameCaptureHook.SetCurrentSnapshot(_snapshot, dtPlayer);
+
+            bool needsCapture = _config.EnableFlightRecorder || GameCaptureHook.ExternalCaptureRequested;
+            if (needsCapture && !GameCaptureHook.Installed)
+            {
+                GameCaptureHook.Install();
+            }
+            else if (!needsCapture && GameCaptureHook.Installed && !FlightRecorder.Instance.IsFinalizing)
+            {
+                GameCaptureHook.Uninstall();
+            }
+
+            FlightRecorder.Instance.Update(dtPlayer, _snapshot, _config, _modDirectory);
             TelemetryOverlayApi.NotifyTelemetrySampled(_snapshot, _config, dtPlayer);
             HiddenUiPatch.RecordDelta(dtPlayer);
             Succeeded();
@@ -85,7 +107,11 @@ public class TelemetryOverlayMod
     }
 
     [StarMapAfterGui]
-    public void OnAfterGui(double dt) => DrawEverything(dt, gameUiHidden: false);
+    public void OnAfterGui(double dt)
+    {
+        DrawEverything(dt, gameUiHidden: false);
+        FlightRecorder.Instance.DrawToastNotification();
+    }
 
     private void DrawWhileGameUiHidden(double dt)
     {
@@ -95,6 +121,7 @@ public class TelemetryOverlayMod
         }
 
         DrawEverything(dt, gameUiHidden: true);
+        FlightRecorder.Instance.DrawToastNotification();
     }
 
     private void DrawEverything(double dt, bool gameUiHidden)
@@ -158,6 +185,18 @@ public class TelemetryOverlayMod
         }
 
         _windows.HideAll();
+
+        try
+        {
+            FlightRecorder.Instance.Dispose();
+        }
+        catch { }
+
+        try
+        {
+            GameCaptureHook.Uninstall();
+        }
+        catch { }
 
         try
         {
