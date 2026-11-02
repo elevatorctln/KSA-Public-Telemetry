@@ -220,6 +220,14 @@ public static class ConfigStore
         config.VideoStreamFps = Math.Clamp(config.VideoStreamFps, 10, 60);
         config.VideoStreamQuality = Math.Clamp(config.VideoStreamQuality, 20, 100);
         config.VideoStreamMaxHeight = Math.Clamp(config.VideoStreamMaxHeight, 360, 2160);
+        config.RecordFps = Math.Clamp(config.RecordFps, 15, 60);
+        config.RecordMaxHeight = Math.Clamp(config.RecordMaxHeight, 240, 2160);
+        config.ReplayOverlayOffset = Math.Clamp(
+            config.ReplayOverlayOffset, OverlayConfig.MinReplayOffset, OverlayConfig.MaxReplayOffset);
+        config.ReplayIntroLeadSeconds = Math.Clamp(
+            config.ReplayIntroLeadSeconds, OverlayConfig.MinIntroLead, OverlayConfig.MaxIntroLead);
+        config.ReplayFinalizeSpeed = Math.Clamp(
+            config.ReplayFinalizeSpeed, OverlayConfig.MinFinalizeSpeed, OverlayConfig.MaxFinalizeSpeed);
 
         if (!Enum.IsDefined(config.DisplayMode))
         {

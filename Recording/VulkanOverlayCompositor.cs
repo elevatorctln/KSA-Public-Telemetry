@@ -57,28 +57,48 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
     private VkFramebuffer _framebuffer;
     private VkPipeline _pipeline;
     private ImGuiContextPtr _recorderContext;
-    private byte* _pViewportData;
+
+    // One ImGui ViewportData per overlay frame rendered in a tick: the backend rotates through
+    // per-viewport vertex buffers on every RenderDrawData call, so rendering several frames from
+    // one viewport would overwrite vertices the GPU has not consumed yet.
+    private byte*[] _viewportData = [];
     private int _width;
     private int _height;
     private VkFormat _format;
     private bool _resourcesAllocated;
 
-    // Dedicated triple-buffered staging ring (3 staging buffers total) for high-speed non-blocking GPU compositing
-    public const int StagingCount = 3;
-    private readonly BufferEx[] _stagingBuffers = new BufferEx[StagingCount];
+    // Staging ring for CPU readback of finished overlay frames
+    private BufferEx[] _stagingBuffers = [];
     private ImageEx _overlayImage;
     private VkImageLayout _currentOverlayLayout = VkImageLayout.Undefined;
     private ulong _stagingBufferSize;
 
     public bool ResourcesReady => _resourcesAllocated;
+    public int StagingCount => _stagingBuffers.Length;
+    public int SubFrameCount => _viewportData.Length;
 
-    public BufferEx GetStagingBuffer(int index) => (index >= 0 && index < StagingCount) ? _stagingBuffers[index] : default;
+    public BufferEx GetStagingBuffer(int index) => (index >= 0 && index < _stagingBuffers.Length) ? _stagingBuffers[index] : default;
 
-    public bool EnsureFinalizerResources(Renderer renderer, int width, int height, VkFormat format)
+    /// <summary>
+    /// The game draws its UI into an sRGB target, which encodes ImGui's colours on write. Rendering the
+    /// recorder overlay into the same kind of target makes the replay HUD match what the player saw.
+    /// </summary>
+    private static VkFormat OverlayFormatFor(Renderer renderer) =>
+        renderer.ColorFormat.ToString().Contains("SRGB", StringComparison.OrdinalIgnoreCase)
+            ? VkFormat.R8G8B8A8SRGB
+            : VkFormat.R8G8B8A8UNorm;
+
+    /// <summary>
+    /// Builds the overlay target, a staging ring of <paramref name="stagingCount"/> buffers and
+    /// <paramref name="subFrames"/> ImGui viewports (overlay frames rendered per tick).
+    /// </summary>
+    public bool EnsureFinalizerResources(Renderer renderer, int width, int height, int subFrames, int stagingCount)
     {
         ulong bufferSize = (ulong)(width * height * 4);
-        if (_resourcesAllocated && !_overlayImage.VkImage.IsNull() && !_stagingBuffers[0].IsNull() &&
-            _width == width && _height == height && _stagingBufferSize == bufferSize)
+        VkFormat format = OverlayFormatFor(renderer);
+        if (_resourcesAllocated && !_overlayImage.VkImage.IsNull() && _stagingBuffers.Length == stagingCount &&
+            _viewportData.Length == subFrames && _width == width && _height == height &&
+            _stagingBufferSize == bufferSize && _format == format)
         {
             return true;
         }
@@ -119,12 +139,13 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
                 AllocPreferredProperties = VkMemoryPropertyFlags.HostCachedBit
             };
 
-            for (int i = 0; i < StagingCount; i++)
+            _stagingBuffers = new BufferEx[stagingCount];
+            for (int i = 0; i < stagingCount; i++)
             {
                 _stagingBuffers[i] = renderer.Device.CreateBuffer(bufInfo);
             }
 
-            return EnsureResources(renderer, _overlayImage.VkImage, width, height, format);
+            return EnsureResources(renderer, _overlayImage.VkImage, width, height, format, subFrames);
         }
         catch (Exception ex)
         {
@@ -134,9 +155,10 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
         }
     }
 
-    public bool EnsureResources(Renderer renderer, VkImage targetImage, int width, int height, VkFormat format)
+    private bool EnsureResources(Renderer renderer, VkImage targetImage, int width, int height, VkFormat format, int subFrames)
     {
-        if (_resourcesAllocated && _width == width && _height == height && _format == format && !_imageView.IsNull())
+        if (_resourcesAllocated && _width == width && _height == height && _format == format && !_imageView.IsNull() &&
+            _viewportData.Length == subFrames)
         {
             return true;
         }
@@ -250,22 +272,23 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
                 secIo.BackendRendererUserData = mainIo.BackendRendererUserData;
                 secIo.BackendRendererName = mainIo.BackendRendererName;
 
-                // 7. Allocate isolated ViewportData structure for vertex buffer uploads
-                if (_pViewportData == null)
-                {
-                    Type vpType = typeof(ImGuiBackendVulkanImpl).Assembly.GetType("KSA.ImGuiBackendVulkanImpl+ViewportData")!;
-                    int size = Marshal.SizeOf(vpType);
-                    _pViewportData = (byte*)NativeMemory.AllocZeroed((nuint)size);
-                }
-
-                var vp = ImGui.GetMainViewport();
-                vp.RendererUserData = (IntPtr)_pViewportData;
-
                 ImGui.SetCurrentContext(prevCtx);
             }
 
+            // 7. Allocate isolated ViewportData structures for vertex buffer uploads
+            if (_viewportData.Length != subFrames)
+            {
+                Type vpType = typeof(ImGuiBackendVulkanImpl).Assembly.GetType("KSA.ImGuiBackendVulkanImpl+ViewportData")!;
+                int size = Marshal.SizeOf(vpType);
+                _viewportData = new byte*[subFrames];
+                for (int i = 0; i < subFrames; i++)
+                {
+                    _viewportData[i] = (byte*)NativeMemory.AllocZeroed((nuint)size);
+                }
+            }
+
             _resourcesAllocated = true;
-            Console.WriteLine(LogPrefix + $"hardware overlay compositor built: {width}x{height} ({format})");
+            Console.WriteLine(LogPrefix + $"hardware overlay compositor built: {width}x{height} ({format}, {subFrames} frame(s) per tick)");
             return true;
         }
         catch (Exception ex)
@@ -288,9 +311,11 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
         int height,
         TelemetrySnapshot? snapshot,
         double dt,
-        bool drawHud)
+        bool drawHud,
+        int subFrame)
     {
-        if (!_resourcesAllocated || _pipeline.IsNull() || _framebuffer.IsNull() || _renderPass.IsNull() || _recorderContext.IsNull())
+        if (!_resourcesAllocated || _pipeline.IsNull() || _framebuffer.IsNull() || _renderPass.IsNull() || _recorderContext.IsNull() ||
+            subFrame < 0 || subFrame >= _viewportData.Length)
         {
             return false;
         }
@@ -317,22 +342,33 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
             {
                 ImGuiContextPtr prevCtx = ImGui.GetCurrentContext();
                 ImGui.SetCurrentContext(_recorderContext);
+                bool frameOpen = false;
 
-                ImGuiIOPtr io = ImGui.GetIO();
-                io.DisplaySize = new float2(width, height);
-                io.DeltaTime = (float)Math.Clamp(dt, 0.001, 0.1);
-
-                ImGui.NewFrame();
-                FlightRecorder.Instance.RecorderRenderer?.Draw(snapshot, dt);
-                ImGui.Render();
-
-                drawData = ImGui.GetDrawData();
-                if (_pViewportData != null)
+                // Whatever the overlay throws, the game's own ImGui context must be current again afterwards
+                try
                 {
-                    drawData.OwnerViewport.RendererUserData = (IntPtr)_pViewportData;
-                }
+                    ImGuiIOPtr io = ImGui.GetIO();
+                    io.DisplaySize = new float2(width, height);
+                    io.DeltaTime = (float)Math.Clamp(dt, 0.001, 0.1);
 
-                ImGui.SetCurrentContext(prevCtx);
+                    ImGui.NewFrame();
+                    frameOpen = true;
+                    FlightRecorder.Instance.RecorderRenderer?.Draw(snapshot, dt);
+                    frameOpen = false;
+                    ImGui.Render();
+
+                    drawData = ImGui.GetDrawData();
+                    drawData.OwnerViewport.RendererUserData = (IntPtr)_viewportData[subFrame];
+                }
+                finally
+                {
+                    if (frameOpen)
+                    {
+                        try { ImGui.EndFrame(); } catch { }
+                    }
+
+                    ImGui.SetCurrentContext(prevCtx);
+                }
             }
 
             // 2. Begin RenderPass with LoadOp.Clear -> clears entire image to (0,0,0,0) transparent
@@ -373,7 +409,7 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
     /// </summary>
     public void CopyOverlayToStaging(CommandBuffer commandBuffer, int stagingIndex, int width, int height)
     {
-        if (_overlayImage.VkImage.IsNull() || stagingIndex < 0 || stagingIndex >= StagingCount || _stagingBuffers[stagingIndex].IsNull()) return;
+        if (_overlayImage.VkImage.IsNull() || stagingIndex < 0 || stagingIndex >= _stagingBuffers.Length || _stagingBuffers[stagingIndex].IsNull()) return;
 
         VkImageSubresourceRange range = new()
         {
@@ -435,14 +471,15 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
 
     public void DisposeFinalizerResources(Renderer? renderer)
     {
-        for (int i = 0; i < StagingCount; i++)
+        for (int i = 0; i < _stagingBuffers.Length; i++)
         {
             if (!_stagingBuffers[i].IsNull())
             {
                 _stagingBuffers[i].Dispose();
-                _stagingBuffers[i] = default;
             }
         }
+
+        _stagingBuffers = [];
 
         if (!_overlayImage.VkImage.IsNull())
         {
@@ -461,19 +498,26 @@ public sealed unsafe class VulkanOverlayCompositor : IDisposable
 
         try
         {
-            if (_pViewportData != null)
+            if (_viewportData.Length > 0)
             {
-                try
+                Type? vpType = typeof(ImGuiBackendVulkanImpl).Assembly.GetType("KSA.ImGuiBackendVulkanImpl+ViewportData");
+                foreach (byte* viewportData in _viewportData)
                 {
-                    Type? vpType = typeof(ImGuiBackendVulkanImpl).Assembly.GetType("KSA.ImGuiBackendVulkanImpl+ViewportData");
-                    int renderBuffersOffset = vpType != null ? (int)Marshal.OffsetOf(vpType, "RenderBuffers") : 120;
-                    byte* pBuffers = _pViewportData + renderBuffersOffset;
-                    _destroyBuffersMethod?.Invoke(ImGuiBackend.Vulkan, [(IntPtr)pBuffers]);
-                }
-                catch { }
+                    // Without the type's layout the offset can't be known; leaking the buffers beats freeing at a guess
+                    if (vpType != null)
+                    {
+                        try
+                        {
+                            byte* pBuffers = viewportData + (int)Marshal.OffsetOf(vpType, "RenderBuffers");
+                            _destroyBuffersMethod?.Invoke(ImGuiBackend.Vulkan, [(IntPtr)pBuffers]);
+                        }
+                        catch { }
+                    }
 
-                NativeMemory.Free(_pViewportData);
-                _pViewportData = null;
+                    NativeMemory.Free(viewportData);
+                }
+
+                _viewportData = [];
             }
 
             if (!_recorderContext.IsNull())

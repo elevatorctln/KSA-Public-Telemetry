@@ -18,53 +18,49 @@ using KSATelemetryOverlay.Telemetry;
 namespace KSATelemetryOverlay.Recording;
 
 /// <summary>
-/// High-performance selective game capture hook for KSA.
+/// Selective game capture hook for KSA.
 /// Intercepts KSA's render pipeline before ImGui compositing to capture the pristine 3D scene
-/// from Program._offscreenTarget and stream it to the OBS browser source without any in-game HUD.
-/// Offloads downscaling, bilinear filtering, and Linear->sRGB conversion to the GPU via vkCmdBlitImage.
-/// Features a dedicated zero-allocation background encoder worker and host-cached staging ring.
+/// from Program._offscreenTarget, for the flight recorder and for external consumers (the OBS plugin).
+/// Downscaling and Linear->sRGB conversion happen on the GPU via vkCmdBlitImage; readback goes
+/// through a host-cached staging ring and a bounded queue to a dedicated writer thread.
 /// </summary>
 public static class GameCaptureHook
 {
     private const string LogPrefix = "[GameCapture] ";
+    private const string HarmonyId = "com.elevatorctln.ksatelemetryoverlay.capture";
     private const int QueueFamilyIgnored = -1;
+    private const int CpuBufferCount = 4;
 
     private static Harmony? _harmony;
     private static bool _installed;
     private static FieldInfo? _offscreenField;
+    private static AccessTools.FieldRef<Program, RenderTarget>? _offscreenRef;
 
     private static readonly Stopwatch _fpsTimer = Stopwatch.StartNew();
-    private static double _lastCaptureTime;
+    private static double _nextCaptureTime;
     private static double _lastClientSeenTime = 0;
     private const double IdleGracePeriodSeconds = 3.0;
 
-    // Triple-buffered staging ring in Host-Visible RAM to eliminate horizontal tearing & GPU stalls
-    private const int StagingBufferCount = 3;
-    private static readonly BufferEx[] _stagingBuffers = new BufferEx[StagingBufferCount];
+    // Staging ring in host-visible RAM. KSA waits on the fence of the frame MaxFramesInFlight
+    // back before recording a new one, so a slot that old is safe to read without a stall.
+    private static BufferEx[] _stagingBuffers = [];
+    private static double[] _stagingTimestamps = [];
     private static ulong _stagingBufferSize;
     private static int _writeIndex = 0;
     private static int _framesRecorded = 0;
 
-    // Ping-pong double CPU staging buffers for non-blocking memcpy & encode overlap
-    private static readonly byte[]?[] _cpuStagingBuffers = new byte[2][];
-    private static int _cpuStagingIndex = 0;
+    // GPU resources replaced while earlier frames may still be using them, freed once those frames retire
+    private static readonly List<(ulong RetireAtFrame, BufferEx[] Buffers, ImageEx Image)> _retired = [];
 
     public unsafe delegate void RawFrameCapturedHandler(byte* rgbaPtr, int width, int height);
     public static event RawFrameCapturedHandler? OnRawFrameCaptured;
     public static bool ExternalCaptureRequested { get; set; }
 
-    // Dedicated background encoder worker thread (avoids ThreadPool overhead & Task allocations)
-    private static Thread? _encoderThread;
-    private static readonly AutoResetEvent _encodeSignal = new(false);
-    private static volatile bool _encoderRunning;
-    private static readonly object _encoderLock = new();
-
-    private static volatile int _pendingCpuBufferIndex = -1;
+    private static FrameQueue? _encodeQueue;
     private static int _encodeWidth;
     private static int _encodeHeight;
-    private static int _encodeQuality;
 
-    // GPU intermediate downscale image (Device Local VRAM: ~2 MB for 540p)
+    // GPU intermediate downscale image
     private static ImageEx _downscaleImage;
     private static int _downscaleWidth;
     private static int _downscaleHeight;
@@ -80,18 +76,34 @@ public static class GameCaptureHook
         CurrentDeltaTime = dt;
     }
 
+    private static RenderTarget? OffscreenTarget
+    {
+        get
+        {
+            if (_offscreenRef != null)
+            {
+                return _offscreenRef(Program.Instance);
+            }
+
+            return _offscreenField?.GetValue(Program.Instance) as RenderTarget;
+        }
+    }
+
     private static void DisposeStagingBuffers()
     {
-        if (_stagingBufferSize == 0 && _downscaleImage.VkImage.IsNull()) return;
+        StopEncoderQueue();
+        ReleaseRetired(force: true);
 
         for (int i = 0; i < _stagingBuffers.Length; i++)
         {
             if (!_stagingBuffers[i].IsNull())
             {
                 _stagingBuffers[i].Dispose();
-                _stagingBuffers[i] = default;
             }
         }
+
+        _stagingBuffers = [];
+        _stagingTimestamps = [];
 
         if (!_downscaleImage.VkImage.IsNull())
         {
@@ -102,80 +114,68 @@ public static class GameCaptureHook
         _stagingBufferSize = 0;
         _downscaleWidth = 0;
         _downscaleHeight = 0;
-        _cpuStagingBuffers[0] = null;
-        _cpuStagingBuffers[1] = null;
-        _pendingCpuBufferIndex = -1;
         _framesRecorded = 0;
         _writeIndex = 0;
         _lastClientSeenTime = 0;
     }
 
-    private static void EnsureEncoderThreadStarted()
+    /// <summary>Hands the current GPU resources to the retire list instead of freeing them mid-flight.</summary>
+    private static void RetireStagingBuffers(Renderer renderer)
     {
-        if (_encoderRunning && _encoderThread != null && _encoderThread.IsAlive) return;
-
-        lock (_encoderLock)
-        {
-            if (_encoderRunning && _encoderThread != null && _encoderThread.IsAlive) return;
-            _encoderRunning = true;
-            _encoderThread = new Thread(EncoderLoop)
-            {
-                Name = "KSAGameCaptureEncoder",
-                IsBackground = true,
-                Priority = ThreadPriority.BelowNormal
-            };
-            _encoderThread.Start();
-        }
+        StopEncoderQueue();
+        _retired.Add((renderer.FrameCount + (ulong)renderer.MaxFramesInFlight + 1, _stagingBuffers, _downscaleImage));
+        _stagingBuffers = [];
+        _stagingTimestamps = [];
+        _downscaleImage = default;
+        _stagingBufferSize = 0;
+        _downscaleWidth = 0;
+        _downscaleHeight = 0;
     }
 
-    private static void StopEncoderThread()
+    private static void ReleaseRetired(bool force, Renderer? renderer = null)
     {
-        lock (_encoderLock)
+        for (int i = _retired.Count - 1; i >= 0; i--)
         {
-            if (!_encoderRunning) return;
-            _encoderRunning = false;
-            _encodeSignal.Set();
-        }
-    }
-
-    private static unsafe void EncoderLoop()
-    {
-        while (_encoderRunning)
-        {
-            _encodeSignal.WaitOne();
-            if (!_encoderRunning) break;
-
-            int bufferIdx = _pendingCpuBufferIndex;
-            if (bufferIdx < 0) continue;
-            _pendingCpuBufferIndex = -1;
-
-            byte[]? cpuBuffer = _cpuStagingBuffers[bufferIdx];
-            int w = _encodeWidth;
-            int h = _encodeHeight;
-            int q = _encodeQuality;
-
-            if (cpuBuffer == null || w <= 0 || h <= 0) continue;
-
-            try
+            var entry = _retired[i];
+            if (!force && (renderer == null || renderer.FrameCount < entry.RetireAtFrame))
             {
-                fixed (byte* ptr = cpuBuffer)
-                {
-                    if (ptr != null)
-                    {
-                        if (FlightRecorder.Instance.IsRecording)
-                        {
-                            FlightRecorder.Instance.WriteFramePaced(new ReadOnlySpan<byte>(ptr, w * h * 4));
-                        }
-
-                        OnRawFrameCaptured?.Invoke(ptr, w, h);
-                    }
-                }
+                continue;
             }
-            catch (Exception ex)
+
+            foreach (BufferEx buffer in entry.Buffers)
             {
-                #if DEBUG
-                Console.WriteLine(LogPrefix + $"encode exception: {ex.Message}");
-                #endif
+                if (!buffer.IsNull()) buffer.Dispose();
+            }
+
+            if (!entry.Image.VkImage.IsNull()) entry.Image.Dispose();
+            _retired.RemoveAt(i);
+        }
+    }
+
+    private static void StopEncoderQueue()
+    {
+        _encodeQueue?.Stop(500);
+        _encodeQueue = null;
+    }
+
+    private static unsafe void EncodeFrame(byte[] buffer, double timestamp)
+    {
+        int w = _encodeWidth;
+        int h = _encodeHeight;
+        if (w <= 0 || h <= 0) return;
+
+        ReadOnlySpan<byte> frame = new(buffer, 0, w * h * 4);
+        if (!double.IsNaN(timestamp))
+        {
+            FlightRecorder.Instance.WriteCapturedFrame(frame, w, h, timestamp);
+        }
+
+        RawFrameCapturedHandler? handler = OnRawFrameCaptured;
+        if (handler != null)
+        {
+            fixed (byte* ptr = buffer)
+            {
+                handler(ptr, w, h);
             }
         }
     }
@@ -197,7 +197,12 @@ public static class GameCaptureHook
                 return;
             }
 
-            _harmony = new Harmony("com.elevatorctln.browserservermodule.capture");
+            if (_offscreenField.FieldType == typeof(RenderTarget))
+            {
+                _offscreenRef = AccessTools.FieldRefAccess<Program, RenderTarget>(_offscreenField);
+            }
+
+            _harmony = new Harmony(HarmonyId);
 
             // 1. Patch RenderTarget.CreateColorImage to include VK_IMAGE_USAGE_TRANSFER_SRC_BIT
             MethodInfo? createColorImage = typeof(RenderTarget).GetMethod(
@@ -234,7 +239,7 @@ public static class GameCaptureHook
             }
 
             _installed = true;
-            Console.WriteLine(LogPrefix + "installed low-VRAM hardware capture hook on Program.RenderGame");
+            Console.WriteLine(LogPrefix + "installed hardware capture hook on Program.RenderGame");
 
             // If renderer is already built, schedule rebuild so _offscreenTarget gets TRANSFER_SRC_BIT
             try
@@ -256,8 +261,7 @@ public static class GameCaptureHook
 
         try
         {
-            _harmony?.UnpatchAll("com.elevatorctln.browserservermodule.capture");
-            StopEncoderThread();
+            _harmony?.UnpatchAll(HarmonyId);
             DisposeStagingBuffers();
         }
         catch { }
@@ -315,15 +319,12 @@ public static class GameCaptureHook
             if (wantsVideo && config != null)
             {
                 _lastClientSeenTime = _fpsTimer.Elapsed.TotalSeconds;
-                EnsureEncoderThreadStarted();
                 TryCaptureOffscreen(commandBuffer, config, isRecording);
             }
         }
         catch (Exception ex)
         {
-            #if DEBUG
             Console.WriteLine(LogPrefix + $"pre-highlight capture error: {ex.Message}");
-            #endif
         }
     }
 
@@ -332,13 +333,18 @@ public static class GameCaptureHook
     {
         try
         {
-            if (FlightRecorder.Instance.IsFinalizing)
+            Renderer renderer = Program.GetRenderer();
+            if (_retired.Count > 0)
             {
-                FlightRecorder.Instance.StepFinalize(commandBuffer, Program.GetRenderer());
+                ReleaseRetired(force: false, renderer);
             }
 
-            bool isRecording = FlightRecorder.Instance.IsRecording;
-            bool wantsVideo = isRecording || ExternalCaptureRequested;
+            if (FlightRecorder.Instance.IsFinalizing)
+            {
+                FlightRecorder.Instance.StepFinalize(commandBuffer, renderer);
+            }
+
+            bool wantsVideo = FlightRecorder.Instance.IsRecording || ExternalCaptureRequested;
 
             if (!wantsVideo && !FlightRecorder.Instance.IsFinalizing)
             {
@@ -346,30 +352,36 @@ public static class GameCaptureHook
                 if (_lastClientSeenTime > 0 && (now - _lastClientSeenTime) > IdleGracePeriodSeconds)
                 {
                     DisposeStagingBuffers();
-                    StopEncoderThread();
                     _lastClientSeenTime = 0;
                 }
             }
         }
         catch (Exception ex)
         {
-            #if DEBUG
             Console.WriteLine(LogPrefix + $"capture error: {ex.Message}");
-            #endif
         }
 
         // Always proceed with the original ImGui renderpass
         commandBuffer.BeginRenderPass(in beginInfo, contents);
     }
 
+    /// <summary>
+    /// Size of the captured frames. While recording this is the size the encoder was started
+    /// with, so a window resize mid-flight scales into the same frame instead of corrupting the stream.
+    /// </summary>
     public static void GetCaptureDimensions(OverlayConfig config, bool isRecording, out int dstW, out int dstH)
     {
-        if (_offscreenField?.GetValue(Program.Instance) is RenderTarget target && target.Extent.Width > 0 && target.Extent.Height > 0)
+        if (isRecording && FlightRecorder.Instance.TryGetLockedCaptureSize(out dstW, out dstH))
+        {
+            return;
+        }
+
+        int maxHeight = isRecording ? Math.Clamp(config.RecordMaxHeight, 240, 2160) : Math.Clamp(config.VideoStreamMaxHeight, 240, 2160);
+        if (OffscreenTarget is { } target && target.Extent.Width > 0 && target.Extent.Height > 0)
         {
             int srcW = target.Extent.Width;
             int srcH = target.Extent.Height;
-            int maxHeight = isRecording ? Math.Clamp(config.RecordMaxHeight, 240, 2160) : Math.Clamp(config.VideoStreamMaxHeight, 240, 2160);
-            if (maxHeight > 0 && srcH > maxHeight)
+            if (srcH > maxHeight)
             {
                 float scale = (float)maxHeight / srcH;
                 dstW = (int)(srcW * scale) & ~1;
@@ -383,22 +395,25 @@ public static class GameCaptureHook
             return;
         }
 
-        int fallbackH = isRecording ? Math.Clamp(config.RecordMaxHeight, 240, 2160) : Math.Clamp(config.VideoStreamMaxHeight, 240, 2160);
-        dstH = fallbackH & ~1;
+        dstH = maxHeight & ~1;
         dstW = (dstH * 16 / 9) & ~1;
     }
 
     private static unsafe void TryCaptureOffscreen(CommandBuffer commandBuffer, OverlayConfig config, bool isRecording)
     {
+        // Deadline pacing: a fixed "now - last < interval" test drops to every other frame
+        // whenever frame times jitter around the interval.
         double now = _fpsTimer.Elapsed.TotalSeconds;
         int targetFps = isRecording ? Math.Clamp(config.RecordFps, 15, 60) : Math.Clamp(config.VideoStreamFps, 5, 60);
-        double minInterval = 1.0 / targetFps;
-        if (now - _lastCaptureTime < minInterval)
+        double interval = 1.0 / targetFps;
+        if (now + interval * 0.25 < _nextCaptureTime)
         {
             return;
         }
 
-        if (_offscreenField?.GetValue(Program.Instance) is not RenderTarget target)
+        _nextCaptureTime = Math.Max(_nextCaptureTime + interval, now);
+
+        if (OffscreenTarget is not { } target)
         {
             return;
         }
@@ -415,57 +430,32 @@ public static class GameCaptureHook
 
         ulong bufferSize = (ulong)(dstW * dstH * 4);
         Renderer renderer = Program.GetRenderer();
+        int framesInFlight = Math.Max(1, renderer.MaxFramesInFlight);
+        int stagingCount = framesInFlight + 1;
 
-        // 1. Allocate GPU downscale target image and 3 staging buffers if needed
-        if (_stagingBuffers[0].IsNull() || _stagingBufferSize != bufferSize || _downscaleImage.VkImage.IsNull() || _downscaleWidth != dstW || _downscaleHeight != dstH)
+        // 1. Allocate GPU downscale target image and staging ring if needed
+        if (_stagingBuffers.Length != stagingCount || _stagingBufferSize != bufferSize || _downscaleImage.VkImage.IsNull() || _downscaleWidth != dstW || _downscaleHeight != dstH)
         {
-            DisposeStagingBuffers();
+            if (_stagingBuffers.Length > 0 || !_downscaleImage.VkImage.IsNull())
+            {
+                RetireStagingBuffers(renderer);
+            }
+
             _stagingBufferSize = bufferSize;
 
             VkFormat targetFormat = VkFormat.R8G8B8A8SRGB;
             try
             {
-                ImageEx.CreateInfo imageInfo = new()
-                {
-                    Name = "GameCapture_Downscale",
-                    ImageType = VkImageType._2D,
-                    ImageFormat = targetFormat,
-                    ImageExtent = new VkExtent3D(dstW, dstH, 1),
-                    ImageMipLevels = 1,
-                    ImageArrayLayers = 1,
-                    ImageSamples = VkSampleCountFlags._1Bit,
-                    ImageTiling = VkImageTiling.Optimal,
-                    ImageUsage = VkImageUsageFlags.TransferDstBit | VkImageUsageFlags.TransferSrcBit | VkImageUsageFlags.ColorAttachmentBit,
-                    ImageSharingMode = VkSharingMode.Exclusive,
-                    ImageInitialLayout = VkImageLayout.Undefined,
-                    AllocPreference = MemoryPreference.PreferGpu,
-                };
-                _downscaleImage = renderer.Device.CreateImage(imageInfo);
-                _downscaleFormat = targetFormat;
+                _downscaleImage = renderer.Device.CreateImage(DownscaleImageInfo(targetFormat, dstW, dstH));
             }
             catch
             {
                 // Fallback to UNorm if sRGB not supported for transfer/blit
                 targetFormat = VkFormat.R8G8B8A8UNorm;
-                ImageEx.CreateInfo imageInfo = new()
-                {
-                    Name = "GameCapture_Downscale",
-                    ImageType = VkImageType._2D,
-                    ImageFormat = targetFormat,
-                    ImageExtent = new VkExtent3D(dstW, dstH, 1),
-                    ImageMipLevels = 1,
-                    ImageArrayLayers = 1,
-                    ImageSamples = VkSampleCountFlags._1Bit,
-                    ImageTiling = VkImageTiling.Optimal,
-                    ImageUsage = VkImageUsageFlags.TransferDstBit | VkImageUsageFlags.TransferSrcBit | VkImageUsageFlags.ColorAttachmentBit,
-                    ImageSharingMode = VkSharingMode.Exclusive,
-                    ImageInitialLayout = VkImageLayout.Undefined,
-                    AllocPreference = MemoryPreference.PreferGpu,
-                };
-                _downscaleImage = renderer.Device.CreateImage(imageInfo);
-                _downscaleFormat = targetFormat;
+                _downscaleImage = renderer.Device.CreateImage(DownscaleImageInfo(targetFormat, dstW, dstH));
             }
 
+            _downscaleFormat = targetFormat;
             _downscaleWidth = dstW;
             _downscaleHeight = dstH;
 
@@ -479,51 +469,61 @@ public static class GameCaptureHook
                 AllocPreferredProperties = VkMemoryPropertyFlags.HostCachedBit
             };
 
-            for (int i = 0; i < StagingBufferCount; i++)
+            _stagingBuffers = new BufferEx[stagingCount];
+            _stagingTimestamps = new double[stagingCount];
+            for (int i = 0; i < stagingCount; i++)
             {
                 _stagingBuffers[i] = renderer.Device.CreateBuffer(bufInfo);
             }
 
-            _cpuStagingBuffers[0] = new byte[bufferSize];
-            _cpuStagingBuffers[1] = new byte[bufferSize];
-            _cpuStagingIndex = 0;
-            _pendingCpuBufferIndex = -1;
             _writeIndex = 0;
             _framesRecorded = 0;
             _loggedCaptureInfo = false;
         }
 
-        _lastCaptureTime = now;
-
-        // 2. Read from staging buffer completed 2 frames ago (guaranteed finished by GPU)
-        if (_framesRecorded >= 2)
+        if (_encodeQueue == null || _encodeQueue.FrameBytes != (int)bufferSize)
         {
-            int readyIndex = (_writeIndex + 1) % StagingBufferCount;
-            BufferEx readyBuffer = _stagingBuffers[readyIndex];
-            byte[]? cpuTarget = _cpuStagingBuffers[_cpuStagingIndex];
+            StopEncoderQueue();
+            _encodeQueue = new FrameQueue((int)bufferSize, CpuBufferCount, EncodeFrame, "KSAGameCaptureEncoder");
+        }
 
-            if (!readyBuffer.IsNull() && cpuTarget != null)
+        // 2. Read the oldest staging slot, written framesInFlight captures ago (its frame's fence has been waited on)
+        if (_framesRecorded >= framesInFlight)
+        {
+            int readyIndex = (_writeIndex + 1) % stagingCount;
+            BufferEx readyBuffer = _stagingBuffers[readyIndex];
+
+            // A full queue means the encoder is behind: skip this frame rather than overwrite one it is reading.
+            // The recorder's timestamp pacing repeats the previous frame to keep the timeline intact.
+            if (!readyBuffer.IsNull() && _encodeQueue.TryRent(out byte[] cpuTarget))
             {
-                // Ultra-fast sequential memcpy from PCIe Host-Visible RAM into CPU DDR RAM (~0.15 ms for 540p)
-                using (MappedMemory mapped = readyBuffer.Map())
+                try
                 {
+                    using MappedMemory mapped = readyBuffer.Map();
                     mapped.AsSpan().CopyTo(cpuTarget);
+                }
+                catch
+                {
+                    _encodeQueue.Return(cpuTarget);
+                    throw;
                 }
 
                 _encodeWidth = dstW;
                 _encodeHeight = dstH;
-                _encodeQuality = config.VideoStreamQuality;
-                _pendingCpuBufferIndex = _cpuStagingIndex;
-                _cpuStagingIndex = 1 - _cpuStagingIndex; // swap ping-pong buffer
-                _encodeSignal.Set(); // notify dedicated background worker
+                _encodeQueue.Submit(cpuTarget, _stagingTimestamps[readyIndex]);
             }
         }
 
         if (!_loggedCaptureInfo)
         {
             _loggedCaptureInfo = true;
-            Console.WriteLine(LogPrefix + $"hardware capture: {srcW}x{srcH} ({colorImage.Format}) -> blit {dstW}x{dstH} ({_downscaleFormat}) at JPEG Q{config.VideoStreamQuality}");
+            Console.WriteLine(LogPrefix + $"hardware capture: {srcW}x{srcH} ({colorImage.Format}) -> blit {dstW}x{dstH} ({_downscaleFormat})");
         }
+
+        // The recorder stamps the capture now (and logs the telemetry that matches it)
+        _stagingTimestamps[_writeIndex] = isRecording
+            ? FlightRecorder.Instance.OnCaptureSubmitted()
+            : double.NaN;
 
         // 3. Transition colorImage to TransferSrcOptimal, preserving tracked state
         ImageBarrierInfo prevState = colorImage.GetState();
@@ -627,10 +627,32 @@ public static class GameCaptureHook
         // 9. Restore colorImage back to previous state for subsequent passes (e.g. PartSelectedRenderer)
         commandBuffer.PipelineBarrier2(colorImage, prevState);
 
-        // 10. Advance write index in the 3-buffer ring
-        _writeIndex = (_writeIndex + 1) % StagingBufferCount;
+        // 10. Advance write index in the staging ring
+        _writeIndex = (_writeIndex + 1) % stagingCount;
         _framesRecorded++;
     }
+
+    /// <summary>
+    /// Waits for every captured frame already handed to the writer thread to be written.
+    /// Called by the recorder before it closes the encoder.
+    /// </summary>
+    public static bool WaitForEncoderIdle(int timeoutMs) => _encodeQueue?.WaitIdle(timeoutMs) ?? true;
+
+    private static ImageEx.CreateInfo DownscaleImageInfo(VkFormat format, int width, int height) => new()
+    {
+        Name = "GameCapture_Downscale",
+        ImageType = VkImageType._2D,
+        ImageFormat = format,
+        ImageExtent = new VkExtent3D(width, height, 1),
+        ImageMipLevels = 1,
+        ImageArrayLayers = 1,
+        ImageSamples = VkSampleCountFlags._1Bit,
+        ImageTiling = VkImageTiling.Optimal,
+        ImageUsage = VkImageUsageFlags.TransferDstBit | VkImageUsageFlags.TransferSrcBit | VkImageUsageFlags.ColorAttachmentBit,
+        ImageSharingMode = VkSharingMode.Exclusive,
+        ImageInitialLayout = VkImageLayout.Undefined,
+        AllocPreference = MemoryPreference.PreferGpu,
+    };
 
     private static unsafe void TransitionImage(
         CommandBuffer commandBuffer,

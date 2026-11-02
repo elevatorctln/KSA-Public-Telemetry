@@ -566,19 +566,32 @@ public static class SettingsUi
     {
         bool changed = false;
 
-        ImGui.TextColored(new float4(0.4f, 0.8f, 1f, 1f), "Flight Recorder (Background Video Replay)"u8);
-        ImGui.TextDisabled("Records clean HUD-free 3D scene with SpaceX telemetry overlay directly to an .mp4 file."u8);
+        ImGui.TextColored(new float4(0.4f, 0.8f, 1f, 1f), "Flight Recorder"u8);
+        ImGui.TextDisabled("Records the clean game scene with no game HUD, retroactively composites"u8);
+        ImGui.TextDisabled("the telemetry overlay and then saves the replay to a .mp4 file."u8);
 
-        changed |= ImGui.Checkbox("Enable Flight Recorder"u8, ref config.EnableFlightRecorder);
+        // Turning the recorder off mid-recording would pull the capture hook out from under it
+        if (FlightRecorder.Instance.State != RecordingState.Idle)
+        {
+            ImGui.BeginDisabled();
+            ImGui.Checkbox("Enable Flight Recorder"u8, ref config.EnableFlightRecorder);
+            ImGui.EndDisabled();
+        }
+        else
+        {
+            changed |= ImGui.Checkbox("Enable Flight Recorder"u8, ref config.EnableFlightRecorder);
+        }
 
         if (config.EnableFlightRecorder)
         {
             ImGui.Indent();
 
             // Status and Manual Controls
-            if (FlightRecorder.Instance.IsFinalizing)
+            if (FlightRecorder.Instance.IsFinalizing || FlightRecorder.Instance.IsSaving)
             {
                 ImGui.TextColored(new float4(0.3f, 0.7f, 1f, 1f), $"⚙ FINALIZING: {FlightRecorder.Instance.StatusMessage}");
+                ImGui.TextDisabled("This finalizing step can take a few minutes to complete."u8);
+                ImGui.TextDisabled("If the game closes first, the video is kept without the overlay."u8);
             }
             else if (FlightRecorder.Instance.IsRecording)
             {
@@ -592,11 +605,19 @@ public static class SettingsUi
             }
             else
             {
-                string? ffmpegPath = FfmpegEncoder.FindFfmpeg(config.FfmpegPath, TelemetryOverlayMod.ModDirectory);
+                string? ffmpegPath = FfmpegEncoder.FindFfmpegCached(config.FfmpegPath, TelemetryOverlayMod.ModDirectory);
                 if (ffmpegPath != null)
                 {
-                    string bestCodec = FfmpegEncoder.DetectBestCodec(ffmpegPath);
-                    ImGui.TextColored(new float4(0.3f, 0.9f, 0.5f, 1f), $"FFmpeg Ready: {FfmpegEncoder.CodecDisplayName(bestCodec)}");
+                    // The probe launches FFmpeg several times; never run it on the UI thread
+                    if (FfmpegEncoder.TryGetCachedCodec(ffmpegPath, out string bestCodec))
+                    {
+                        ImGui.TextColored(new float4(0.3f, 0.9f, 0.5f, 1f), $"FFmpeg Ready: {FfmpegEncoder.CodecDisplayName(bestCodec)}");
+                    }
+                    else
+                    {
+                        FfmpegEncoder.WarmUpCodecDetection(ffmpegPath);
+                        ImGui.TextColored(new float4(0.9f, 0.8f, 0.3f, 1f), "FFmpeg found, detecting hardware encoder..."u8);
+                    }
                     ImGui.SameLine();
                     if (ImGui.Button("Start Recording Now##FlightRec"u8))
                     {
@@ -606,9 +627,10 @@ public static class SettingsUi
                         }
                     }
                     ImGui.SameLine();
-                    if (ImGui.SmallButton("Re-detect GPU##FlightRec"u8))
+                    if (ImGui.SmallButton("Re-detect hardware##FlightRec"u8))
                     {
                         FfmpegEncoder.InvalidateCodecCache();
+                        FfmpegEncoder.WarmUpCodecDetection(ffmpegPath);
                     }
                 }
                 else
@@ -657,15 +679,52 @@ public static class SettingsUi
                 changed = true;
             }
 
-            // Countdown setting
-            ImGui.SetNextItemWidth(120f);
-            float cd = config.CountdownSeconds;
-            if (ImGui.SliderFloat("Countdown (seconds)"u8, ref cd, 0f, 60f, "%.0f s"u8))
+            // Game audio recording toggle
+            changed |= ImGui.Checkbox("Record game audio"u8, ref config.RecordAudio);
+            if (!config.RecordAudio)
             {
-                config.CountdownSeconds = MathF.Round(cd);
-                changed = true;
+                ImGui.TextDisabled("Disabled: Video will be exported without audio track."u8);
             }
-            ImGui.TextDisabled("When countdown > 0, recording begins pre-launch and plays the intro reveal."u8);
+
+            // Overlay inclusion toggle
+            changed |= ImGui.Checkbox("Include telemetry overlay in video"u8, ref config.RecordOverlay);
+            if (config.RecordOverlay)
+            {
+                ImGui.Indent();
+
+                // Intro lead: its own setting, separate from the in-game countdown length
+                ImGui.SetNextItemWidth(120f);
+                float lead = config.ReplayIntroLeadSeconds;
+                if (ImGui.SliderFloat("Replay countdown (seconds)"u8, ref lead, OverlayConfig.MinIntroLead, OverlayConfig.MaxIntroLead, "T-%.0f s"u8))
+                {
+                    config.ReplayIntroLeadSeconds = MathF.Round(lead);
+                    changed = true;
+                }
+                ImGui.TextDisabled("How long before liftoff the overlay appears in the replay (0 = at liftoff)."u8);
+
+                // Fine-tune only: frames are already paired with the telemetry captured with them
+                ImGui.SetNextItemWidth(120f);
+                float offset = config.ReplayOverlayOffset;
+                if (ImGui.SliderFloat("Overlay timing offset"u8, ref offset, OverlayConfig.MinReplayOffset, OverlayConfig.MaxReplayOffset, "%+.2f s"u8))
+                {
+                    config.ReplayOverlayOffset = MathF.Round(offset * 100f) / 100f;
+                    changed = true;
+                }
+                ImGui.TextDisabled("Positive values delay the overlay relative to the video. Leave at 0 unless it looks off."u8);
+
+                ImGui.SetNextItemWidth(120f);
+                if (ImGui.SliderInt("Finalize speed"u8, ref config.ReplayFinalizeSpeed, OverlayConfig.MinFinalizeSpeed, OverlayConfig.MaxFinalizeSpeed, "%dx"u8))
+                {
+                    changed = true;
+                }
+                ImGui.TextDisabled("Overlay frames rendered per game frame after the flight. Higher is faster but heavier."u8);
+
+                ImGui.Unindent();
+            }
+            else
+            {
+                ImGui.TextDisabled("Disabled: Clean video is saved directly upon stopping (no overlay compositing)."u8);
+            }
 
             // Auto-triggers
             changed |= ImGui.Checkbox("Auto-start recording on Liftoff / Engine ignition"u8, ref config.AutoRecordOnLiftoff);

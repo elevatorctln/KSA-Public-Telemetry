@@ -7,16 +7,19 @@ namespace KSATelemetryOverlay;
 /// This seems like the type of things that might break things, as far as I can tell it works fine but it can be
 /// toggled in settings, and if it fails it only disables this feature and the mod can continue.
 /// (thanks Goddchen!)
+/// It is also the overlay's main draw hook while the UI is visible: StarMap's AfterGui is a postfix on
+/// OnDrawUiViewports, which is small enough for the .NET 10 JIT to inline into OnFrame, skipping the postfix.
+/// DrawFps is too big to inline and runs every frame whether or not the UI is shown.
 public static class HiddenUiPatch
 {
     private const string TargetMethod = "DrawFps";
-    private static Action<double>? _draw;
+    private static Action<double, bool>? _draw;
     private static double _lastDelta;
     public static bool Installed { get; private set; }
     public static string? Failure { get; private set; }
     public static void RecordDelta(double dt) => _lastDelta = dt;
 
-    public static void Install(Action<double> draw)
+    public static void Install(Action<double, bool> draw)
     {
         _draw = draw;
 
@@ -39,12 +42,7 @@ public static class HiddenUiPatch
 
     public static void AfterDrawFps()
     {
-        if (Program.DrawUI)
-        {
-            return;
-        }
-
-        _draw?.Invoke(_lastDelta);
+        _draw?.Invoke(_lastDelta, !Program.DrawUI);
     }
 
     private static string? Patch()

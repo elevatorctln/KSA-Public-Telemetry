@@ -48,7 +48,7 @@ public class TelemetryOverlayMod
             _config = ConfigStore.Load();
             TelemetryOverlayApi.CurrentConfig = _config;
             TelemetrySampler.Missions.ApplyEpochs(_config.MissionEpochs, _config.MissionOrigins);
-            HiddenUiPatch.Install(DrawWhileGameUiHidden);
+            HiddenUiPatch.Install(DrawFromHook);
 
             Console.WriteLine(LogPrefix + (HiddenUiPatch.Installed
                 ? "overlay will stay up when the game UI is hidden."
@@ -60,6 +60,12 @@ public class TelemetryOverlayMod
             if (_config.EnableFlightRecorder)
             {
                 GameCaptureHook.Install();
+
+                // Probe the hardware encoder now, in the background, rather than on the first recording
+                if (FfmpegEncoder.FindFfmpeg(_config.FfmpegPath, _modDirectory) is { } ffmpeg)
+                {
+                    FfmpegEncoder.WarmUpCodecDetection(ffmpeg);
+                }
             }
 
             Console.WriteLine(
@@ -90,7 +96,7 @@ public class TelemetryOverlayMod
             {
                 GameCaptureHook.Install();
             }
-            else if (!needsCapture && GameCaptureHook.Installed && !FlightRecorder.Instance.IsFinalizing)
+            else if (!needsCapture && GameCaptureHook.Installed && FlightRecorder.Instance.State == RecordingState.Idle)
             {
                 GameCaptureHook.Uninstall();
             }
@@ -109,18 +115,24 @@ public class TelemetryOverlayMod
     [StarMapAfterGui]
     public void OnAfterGui(double dt)
     {
-        DrawEverything(dt, gameUiHidden: false);
-        FlightRecorder.Instance.DrawToastNotification();
-    }
-
-    private void DrawWhileGameUiHidden(double dt)
-    {
-        if (_config is null || !_config.ShowWhenGameUiHidden)
+        // Only a fallback: the DrawFps hook draws every frame, and this one can be skipped by the JIT
+        if (HiddenUiPatch.Installed)
         {
             return;
         }
 
-        DrawEverything(dt, gameUiHidden: true);
+        DrawEverything(dt, gameUiHidden: false);
+        FlightRecorder.Instance.DrawToastNotification();
+    }
+
+    private void DrawFromHook(double dt, bool gameUiHidden)
+    {
+        if (_config is null || (gameUiHidden && !_config.ShowWhenGameUiHidden))
+        {
+            return;
+        }
+
+        DrawEverything(dt, gameUiHidden);
         FlightRecorder.Instance.DrawToastNotification();
     }
 

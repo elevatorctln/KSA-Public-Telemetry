@@ -44,8 +44,16 @@ public sealed class OverlayConfig
     public ImGuiKey RecordKey = ImGuiKey.F9;
     public int RecordFps = 30;
     public int RecordMaxHeight = 1080;
-    public bool AutoRecordOnLiftoff = true;
-    public bool AutoStopOnMissionEnd = true;
+    public bool AutoRecordOnLiftoff = false;
+    public bool AutoStopOnMissionEnd = false;
+    public bool RecordOverlay = true;
+    public bool RecordAudio = true;
+    // Replay frames are paired with the telemetry captured alongside them, so this is only a
+    // fine-tune (positive delays the overlay). Renamed from ReplayTelemetrySyncDelay, whose 0.55 s
+    // compensated for the old pipeline's latency and would now over-correct.
+    public float ReplayOverlayOffset = 0f;
+    public float ReplayIntroLeadSeconds = 10f;
+    public int ReplayFinalizeSpeed = 2;
     public string? FfmpegPath = null;
     public string? RecordingsFolder = null;
 
@@ -103,6 +111,11 @@ public sealed class OverlayConfig
             HideOnRails = HideOnRails,
             SpeedReference = SpeedReference,
             CountdownSeconds = CountdownSeconds,
+            RecordOverlay = RecordOverlay,
+            RecordAudio = RecordAudio,
+            ReplayOverlayOffset = ReplayOverlayOffset,
+            ReplayIntroLeadSeconds = ReplayIntroLeadSeconds,
+            ReplayFinalizeSpeed = ReplayFinalizeSpeed,
             TerrainRelativeAltitude = TerrainRelativeAltitude,
             ReplaceFlightUi = false,
             MissionName = MissionName,
@@ -130,6 +143,9 @@ public sealed class OverlayConfig
     public const float MinSpeedArc = 100f, MaxSpeedArc = 12000f;
     public const float MinAltitudeArc = 0f, MaxAltitudeArc = 2000f;
     public const float MinGForceArc = 1f, MaxGForceArc = 20f;
+    public const float MinReplayOffset = -1f, MaxReplayOffset = 1.5f;
+    public const float MinIntroLead = 0f, MaxIntroLead = 60f;
+    public const int MinFinalizeSpeed = 1, MaxFinalizeSpeed = 4;
 }
 
 public sealed class OverlayWindowState

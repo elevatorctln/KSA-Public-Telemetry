@@ -103,52 +103,57 @@ public sealed class TelemetrySnapshot
 
     public TelemetrySnapshot Clone()
     {
-        var copy = new TelemetrySnapshot
-        {
-            HasVehicle = HasVehicle,
-            OnRails = OnRails,
-            HasSurfaceContact = HasSurfaceContact,
-            IsControllable = IsControllable,
-            MissionElapsedSeconds = MissionElapsedSeconds,
-            HasLiftoff = HasLiftoff,
-            Signal = Signal,
-            IsFrozen = IsFrozen,
-            VehicleName = VehicleName,
-            SurfaceSpeed = SurfaceSpeed,
-            OrbitalSpeed = OrbitalSpeed,
-            VerticalSpeed = VerticalSpeed,
-            Altitude = Altitude,
-            RadarAltitude = RadarAltitude,
-            Apoapsis = Apoapsis,
-            Periapsis = Periapsis,
-            GLoad = GLoad,
-            TotalMass = TotalMass,
-            PropellantMass = PropellantMass,
-            Thrust = Thrust,
-            ThrustToWeight = ThrustToWeight,
-            LocalGravity = LocalGravity,
-            AmbientPressure = AmbientPressure,
-            AboveAtmosphere = AboveAtmosphere,
-            AmbientDensity = AmbientDensity,
-            DynamicPressure = DynamicPressure,
-            MaxDynamicPressure = MaxDynamicPressure,
-            PropellantFraction = PropellantFraction,
-            PropellantCapacity = PropellantCapacity,
-            BurningEngineCount = BurningEngineCount,
-            TotalEngineCount = TotalEngineCount,
-            PartCount = PartCount,
-            AttachedRadialDecouplers = AttachedRadialDecouplers,
-            HasLaunched = HasLaunched,
-            LaunchUniverseSeconds = LaunchUniverseSeconds,
-            ClockEpochInferred = ClockEpochInferred,
-            CountingDown = CountingDown,
-            Downrange = Downrange,
-            Events = Events,
-        };
+        var copy = new TelemetrySnapshot();
+        CopyTo(copy);
+        return copy;
+    }
+
+    /// <summary>Copies every field into <paramref name="target"/>, reusing its engine list.</summary>
+    public void CopyTo(TelemetrySnapshot target)
+    {
+        target.HasVehicle = HasVehicle;
+        target.OnRails = OnRails;
+        target.HasSurfaceContact = HasSurfaceContact;
+        target.IsControllable = IsControllable;
+        target.MissionElapsedSeconds = MissionElapsedSeconds;
+        target.HasLiftoff = HasLiftoff;
+        target.Signal = Signal;
+        target.IsFrozen = IsFrozen;
+        target.VehicleName = VehicleName;
+        target.SurfaceSpeed = SurfaceSpeed;
+        target.OrbitalSpeed = OrbitalSpeed;
+        target.VerticalSpeed = VerticalSpeed;
+        target.Altitude = Altitude;
+        target.RadarAltitude = RadarAltitude;
+        target.Apoapsis = Apoapsis;
+        target.Periapsis = Periapsis;
+        target.GLoad = GLoad;
+        target.TotalMass = TotalMass;
+        target.PropellantMass = PropellantMass;
+        target.Thrust = Thrust;
+        target.ThrustToWeight = ThrustToWeight;
+        target.LocalGravity = LocalGravity;
+        target.AmbientPressure = AmbientPressure;
+        target.AboveAtmosphere = AboveAtmosphere;
+        target.AmbientDensity = AmbientDensity;
+        target.DynamicPressure = DynamicPressure;
+        target.MaxDynamicPressure = MaxDynamicPressure;
+        target.PropellantFraction = PropellantFraction;
+        target.PropellantCapacity = PropellantCapacity;
+        target.BurningEngineCount = BurningEngineCount;
+        target.TotalEngineCount = TotalEngineCount;
+        target.PartCount = PartCount;
+        target.AttachedRadialDecouplers = AttachedRadialDecouplers;
+        target.HasLaunched = HasLaunched;
+        target.LaunchUniverseSeconds = LaunchUniverseSeconds;
+        target.ClockEpochInferred = ClockEpochInferred;
+        target.CountingDown = CountingDown;
+        target.Downrange = Downrange;
+        target.Events = Events;
+        target.Engines.Clear();
         for (int i = 0; i < Engines.Count; i++)
         {
-            copy.Engines.Add(Engines[i]);
+            target.Engines.Add(Engines[i]);
         }
-        return copy;
     }
 }

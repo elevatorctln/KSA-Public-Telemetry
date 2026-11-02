@@ -88,6 +88,9 @@
 		<Reference Include="$(ImportDir)Planet.Render.Core.dll">
 			<Private>false</Private>
 		</Reference>
+		<Reference Include="$(ImportDir)Brutal.Fmod.dll">
+			<Private>false</Private>
+		</Reference>
 	</ItemGroup>
 
 </Project>
