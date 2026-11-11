@@ -9,7 +9,6 @@ namespace KSATelemetryOverlay.Rendering;
 
 public static class SettingsUi
 {
-    public static bool ModMenuActive { get; set; }
     private static OverlayConfig? _config;
     private static WindowHost? _windows;
     private static ImInputString? _missionName;
@@ -53,19 +52,7 @@ public static class SettingsUi
         _missionName = new ImInputString(64, config.MissionName ?? string.Empty);
     }
 
-    [ModMenuEntry("Telemetry Overlay", nameof(ModMenuActive))]
-    public static void DrawSettingsMenu()
-    {
-        if (_config is null)
-        {
-            ImGui.TextDisabled("Overlay is still starting up."u8);
-            return;
-        }
-
-        DrawContent(_config, inMenu: true);
-    }
-
-    public static void DrawFallbackWindow()
+    public static void DrawWindow()
     {
         if (_config is null || !_windowOpen)
         {
@@ -76,13 +63,7 @@ public static class SettingsUi
 
         if (ImGui.Begin("Telemetry Overlay"u8, ref _windowOpen, ImGuiWindowFlags.AlwaysAutoResize))
         {
-            if (!ModMenuActive)
-            {
-                ImGui.TextDisabled("Install ModMenu to move these settings into a nice dedicated Mods menu."u8);
-                ImGui.Separator();
-            }
-
-            DrawContent(_config, inMenu: false);
+            DrawContent(_config);
         }
 
         ImGui.End();
@@ -90,18 +71,9 @@ public static class SettingsUi
 
     public static void ToggleWindow() => _windowOpen = !_windowOpen;
 
-    private static bool Category(ImString label, bool inMenu)
-        => inMenu ? ImGui.BeginMenu(label) : ImGui.CollapsingHeader(label);
+    public static void OpenWindow() => _windowOpen = true;
 
-    private static void EndCategory(bool inMenu)
-    {
-        if (inMenu)
-        {
-            ImGui.EndMenu();
-        }
-    }
-
-    private static void DrawContent(OverlayConfig config, bool inMenu)
+    private static void DrawContent(OverlayConfig config)
     {
         bool changed = false;
 
@@ -133,7 +105,7 @@ public static class SettingsUi
 
         ImGui.Separator();
 
-        if (Category("Elements"u8, inMenu))
+        if (ImGui.CollapsingHeader("Elements"u8))
         {
             changed |= ImGui.Checkbox("Readouts"u8, ref config.ShowTelemetryBar);
             changed |= ImGui.Checkbox("Engine diagram"u8, ref config.ShowEngineDiagram);
@@ -145,10 +117,9 @@ public static class SettingsUi
             changed |= ImGui.Checkbox("Timeline"u8, ref config.ShowTimeline);
             changed |= ImGui.Checkbox("Event Notifications"u8, ref config.ShowNotifications);
             changed |= ImGui.Checkbox("Backdrop band"u8, ref config.ShowBackdrop);
-            EndCategory(inMenu);
         }
 
-        if (Category("Readouts"u8, inMenu))
+        if (ImGui.CollapsingHeader("Readouts"u8))
         {
             changed |= DrawSlotEditor("Left"u8, "left", ref config.LeftSlots, config);
             changed |= DrawSlotEditor("Right"u8, "right", ref config.RightSlots, config);
@@ -165,10 +136,9 @@ public static class SettingsUi
             ImGui.SetNextItemWidth(160f);
             changed |= ImGui.SliderFloat("G-force"u8, ref config.GForceArcFullScale,
                 OverlayConfig.MinGForceArc, OverlayConfig.MaxGForceArc, "%.1f g"u8);
-            EndCategory(inMenu);
         }
 
-        if (Category("Events"u8, inMenu))
+        if (ImGui.CollapsingHeader("Events"u8))
         {
             ImGui.TextDisabled("Announce as a callout"u8);
             changed |= DrawNotificationToggles(config);
@@ -177,10 +147,9 @@ public static class SettingsUi
             ImGui.SetNextItemWidth(160f);
             changed |= ImGui.SliderFloat("Timeline window"u8, ref config.TimelineWindowSeconds,
                 OverlayConfig.MinTimelineWindow, OverlayConfig.MaxTimelineWindow, "%.0f s"u8);
-            EndCategory(inMenu);
         }
 
-        if (Category("Appearance"u8, inMenu))
+        if (ImGui.CollapsingHeader("Appearance"u8))
         {
             ImGui.SetNextItemWidth(160f);
             changed |= ImGui.SliderFloat("Scale"u8, ref config.Scale,
@@ -207,24 +176,11 @@ public static class SettingsUi
                     "Plays the reveal backwards when hidden, instead of cutting away."u8);
             }
 
-            if (inMenu)
-            {
-                if (ImGui.BeginMenu("Colours"u8))
-                {
-                    changed |= DrawColorEditors();
-                    ImGui.EndMenu();
-                }
-            }
-            else
-            {
-                ImGui.SeparatorText("Colours"u8);
-                changed |= DrawColorEditors();
-            }
-
-            EndCategory(inMenu);
+            ImGui.SeparatorText("Colours"u8);
+            changed |= DrawColorEditors();
         }
 
-        if (Category("Behaviour"u8, inMenu))
+        if (ImGui.CollapsingHeader("Behaviour"u8))
         {
             changed |= DrawKeyBinding("Toggle overlay"u8, ref config.ToggleKey, KeySlot.Toggle);
             changed |= DrawKeyBinding("Open settings"u8, ref config.SettingsKey, KeySlot.Settings);
@@ -238,28 +194,24 @@ public static class SettingsUi
             ImGui.TextDisabled("Freezes once g-load or dynamic pressure reaches this much of"u8);
             ImGui.TextDisabled("what the vehicle can take, so the last values are from before"u8);
             ImGui.TextDisabled("it came apart. 1.00 waits for the breakup itself."u8);
-            EndCategory(inMenu);
         }
 
-        if (Category("Windows"u8, inMenu))
+        if (ImGui.CollapsingHeader("Windows"u8))
         {
             DrawWindowToggles();
-            EndCategory(inMenu);
         }
 
-        if (Category("Flight Recorder"u8, inMenu))
+        if (ImGui.CollapsingHeader("Flight Recorder"u8))
         {
             changed |= DrawFlightRecorderSettings(config);
-            EndCategory(inMenu);
         }
 
-        if (TelemetryOverlayApi.HasObsModule && Category("OBS / Webcast"u8, inMenu))
+        if (TelemetryOverlayApi.HasObsModule && ImGui.CollapsingHeader("OBS / Webcast"u8))
         {
             changed |= TelemetryOverlayApi.DrawObsSettings(config);
-            EndCategory(inMenu);
         }
 
-        if (Category("Advanced"u8, inMenu))
+        if (ImGui.CollapsingHeader("Advanced"u8))
         {
             bool tuning = TuningUi.IsOpen;
             if (ImGui.Checkbox("Visual tuning window"u8, ref tuning))
@@ -273,7 +225,6 @@ public static class SettingsUi
             }
 
             ImGui.TextDisabled(ConfigStore.FilePath);
-            EndCategory(inMenu);
         }
 
         if (changed)

@@ -5,6 +5,7 @@ using KSATelemetryOverlay.Recording;
 using KSATelemetryOverlay.Rendering;
 using KSATelemetryOverlay.Telemetry;
 using StarMap.API;
+using StarMap.API.Services;
 
 namespace KSATelemetryOverlay;
 
@@ -14,6 +15,11 @@ public class TelemetryOverlayMod
     private const string LogPrefix = "[KSATelemetryOverlay] ";
 
     public static string? ModDirectory { get; private set; }
+
+    private const string MenuLabel = "Telemetry Overlay";
+
+    private readonly IModMenuService _modMenu;
+    private IDisposable? _menuItem;
 
     private readonly TelemetrySnapshot _snapshot = new();
     private readonly WindowHost _windows = new();
@@ -25,6 +31,11 @@ public class TelemetryOverlayMod
     private int _consecutiveFailures;
     private string? _modDirectory;
     private string _lastWindowVehicle = string.Empty;
+
+    public TelemetryOverlayMod(IModMenuService modMenu)
+    {
+        _modMenu = modMenu;
+    }
 
     [StarMapBeforeMain]
     public void OnBeforeMain()
@@ -55,6 +66,7 @@ public class TelemetryOverlayMod
                 : $"overlay will hide with the game UI: {HiddenUiPatch.Failure}."));
             _renderer = new OverlayRenderer(_config);
             SettingsUi.Bind(_config, _windows);
+            _menuItem = _modMenu.AddModMenuItem(MenuLabel, SettingsUi.OpenWindow);
             TuningUi.Bind(_renderer);
 
             if (_config.EnableFlightRecorder)
@@ -162,7 +174,7 @@ public class TelemetryOverlayMod
 
             if (!gameUiHidden)
             {
-                SettingsUi.DrawFallbackWindow();
+                SettingsUi.DrawWindow();
                 TuningUi.Draw();
             }
 
@@ -190,6 +202,9 @@ public class TelemetryOverlayMod
     [StarMapUnload]
     public void OnUnload()
     {
+        _menuItem?.Dispose();
+        _menuItem = null;
+
         if (_config is not null)
         {
             _windows.CaptureInto(_config);

@@ -40,8 +40,6 @@ enabled = true
 ## Dependencies:
 [StarMap](https://github.com/StarMapLoader/StarMap) is required for this mod. Follow the instructions for installing it and launch the game through StarMap when using this mod. Borea provides Starmap by default.
 
-[ModMenu](https://github.com/MrJeranimo/ModMenu) is optional but recommended, it provides the settings dropdown menu. If modmap is not installed, the settings menu can be accessed through a keybind that brings up a dedicated window, by default **numpad backslash**
-
 ## Settings
 
 Toggle the overlay on and off using the **numpad period** key by default. This can be configured in the config file or the settings menu.
