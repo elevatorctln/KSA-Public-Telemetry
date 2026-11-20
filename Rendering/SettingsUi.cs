@@ -188,6 +188,17 @@ public static class SettingsUi
             changed |= ImGui.Checkbox("Hide while on rails"u8, ref config.HideOnRails);
             changed |= ImGui.Checkbox("Status when no vehicle"u8, ref config.ShowStatusWhenIdle);
 
+            if (CineCamLink.Available)
+            {
+                changed |= ImGui.Checkbox("Follow CineCam cues"u8, ref config.FollowCineCamCues);
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(
+                        "Shows the overlay only between the cues overlay-in and overlay-out of a CineCam take,\nalso in its replays and renders. The end of a live take counts as overlay-out."u8);
+                }
+            }
+
             ImGui.SetNextItemWidth(160f);
             changed |= ImGui.SliderFloat("Freeze at load"u8, ref config.FreezeAtToleranceFraction,
                 OverlayConfig.MinFreezeTolerance, OverlayConfig.MaxFreezeTolerance, "%.2f"u8);

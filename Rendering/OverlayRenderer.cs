@@ -68,10 +68,13 @@ public sealed class OverlayRenderer
         bool inGameActive = !TelemetryOverlayApi.HasObsModule
             || _config.DisplayMode is OverlayDisplayMode.InGameOnly or OverlayDisplayMode.Both;
 
+        bool heldByCineCam = _config.FollowCineCamCues && CineCamLink.Available && !CineCamLink.CueIn;
+
         bool overlayVisible = _config.Enabled
             && inGameActive
             && snapshot.HasVehicle
-            && !(_config.HideOnRails && snapshot.OnRails);
+            && !(_config.HideOnRails && snapshot.OnRails)
+            && !heldByCineCam;
 
         if (overlayVisible && !_wasVisible)
         {
@@ -87,7 +90,8 @@ public sealed class OverlayRenderer
 
             _outroActive = false;
         }
-        else if (!overlayVisible && _wasVisible && snapshot.HasVehicle && _config.PlayOutro)
+        else if (!overlayVisible && _wasVisible && snapshot.HasVehicle && _config.PlayOutro
+            && !(heldByCineCam && CineCamLink.CutAway))
         {
             _intro.Reverse();
             _outroActive = true;

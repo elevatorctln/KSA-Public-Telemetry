@@ -64,6 +64,12 @@ public class TelemetryOverlayMod
             Console.WriteLine(LogPrefix + (HiddenUiPatch.Installed
                 ? "overlay will stay up when the game UI is hidden."
                 : $"overlay will hide with the game UI: {HiddenUiPatch.Failure}."));
+
+            if (CineCamLink.TryAttach())
+            {
+                Console.WriteLine(LogPrefix + "CineCam found, the overlay can follow the cues of its takes.");
+            }
+
             _renderer = new OverlayRenderer(_config);
             SettingsUi.Bind(_config, _windows);
             _menuItem = _modMenu.AddModMenuItem(MenuLabel, SettingsUi.OpenWindow);
@@ -234,6 +240,7 @@ public class TelemetryOverlayMod
             Console.WriteLine(LogPrefix + $"could not restore the flight HUD: {ex.Message}");
         }
 
+        CineCamLink.Detach();
         TelemetrySampler.Reset();
         TelemetryOverlayApi.CurrentConfig = null;
         Console.WriteLine(LogPrefix + "unloaded");
