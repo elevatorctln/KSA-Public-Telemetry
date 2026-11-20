@@ -65,6 +65,8 @@ public sealed class OverlayConfig
     public bool PlayIntro = true;
     public bool PlayOutro = false;
     public bool ShowWhenGameUiHidden = true;
+    // Only used when CineCam is installed, see CineCamLink. Not copied for recordings, which time their own intro.
+    public bool FollowCineCamCues = false;
     public string? MissionName = null;
 
     // presentation
